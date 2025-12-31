@@ -29,19 +29,19 @@ pub fn sorted_systems<'a, T>(
         let _r = systems.insert(s.descriptor.id, s);
         assert!(
             _r.is_none(),
-            "Currently, duplicate systems are not allowed in a single stage"
+            "Duplicate systems are not allowed in a single stage"
         );
     }
     let mut res = Vec::with_capacity(systems.len());
     let mut pending = Vec::default();
 
     for id in systemids {
-        extend_sorted_systems(id, &mut systems, &mut res, &mut pending);
+        topo_sort_systems(id, &mut systems, &mut res, &mut pending);
     }
     res
 }
 
-fn extend_sorted_systems<'a, T>(
+fn topo_sort_systems<'a, T>(
     id: TypeId,
     systems: &mut FxHashMap<TypeId, ErasedSystem<'a, T>>,
     out: &mut Vec<ErasedSystem<'a, T>>,
@@ -53,7 +53,7 @@ fn extend_sorted_systems<'a, T>(
     };
     pending.push(id);
     for id in sys.descriptor.after.iter().copied() {
-        extend_sorted_systems(id, systems, out, pending);
+        topo_sort_systems(id, systems, out, pending);
     }
     pending.pop();
     out.push(sys);
