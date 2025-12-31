@@ -193,14 +193,14 @@ impl JobPool {
     }
 
     pub fn enqueue_graph<T: Send + AsJob>(&self, graph: HomogeneousJobGraph<T>) -> JobHandle {
+        let jobs: Vec<_> = graph.get_jobs().into_iter().collect();
+        let data = graph.jobs;
+        let root = BoxedJob::new(move || {
+            // take ownership of the data
+            // dropping it when the final, root, job is executed
+            let _d = data;
+        });
         unsafe {
-            let jobs: Vec<_> = graph.get_jobs().into_iter().collect();
-            let data = graph.jobs;
-            let root = BoxedJob::new(move || {
-                // take ownership of the data
-                // dropping it when the final, root, job is executed
-                let _d = data;
-            });
             let root = root.into_job();
             for mut job in jobs {
                 job.add_child(&root);
@@ -213,9 +213,9 @@ impl JobPool {
 
     /// Run the provided job graph, blocking until all jobs have finished
     pub fn run_graph<T: Send + AsJob>(&self, graph: &HomogeneousJobGraph<T>) {
+        let jobs = graph.get_jobs();
+        let root = InlineJob::new(|| {});
         unsafe {
-            let jobs = graph.get_jobs();
-            let root = InlineJob::new(|| {});
             let root = root.as_job();
             for mut job in jobs {
                 job.add_child(&root);
@@ -896,11 +896,11 @@ where
         self.edges.push([parent, child]);
     }
 
-    /// # Safety
-    ///
-    /// The jobs are only valid while this graph is not modified or dropped
-    ///
-    unsafe fn get_jobs(&self) -> impl IntoIterator<Item = Job> {
+    fn get_jobs<'a>(&'a self) -> impl IntoIterator<Item = Job> + 'a {
+        // # Safety
+        //
+        // The jobs are only valid while this graph is not modified or dropped
+        //
         unsafe {
             let mut jobs = self.jobs.iter().map(|d| Job::new(d)).collect::<Vec<_>>();
             for [parent, child] in self.edges.iter().copied() {
