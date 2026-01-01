@@ -29,8 +29,10 @@ fn test_unordered_systems_keep_the_original_ordering() {
 }
 
 #[derive(Debug, Clone)]
+#[cfg(feature = "parallel")]
 struct Lock(pub bool);
 
+#[cfg(feature = "parallel")]
 fn test_lock(l: &mut Lock) {
     assert!(!l.0);
     l.0 = true;
