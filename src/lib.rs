@@ -36,7 +36,7 @@ mod scheduler;
 
 use world_access::WorldLock;
 
-use crate::commands::sort_commands;
+use crate::{commands::sort_commands, systems::ShouldRunFlags};
 
 #[cfg(test)]
 mod world_tests;
@@ -624,15 +624,16 @@ impl World {
         #[cfg(feature = "tracing")]
         tracing::trace!(stage_name = stage_name.as_str(), "Run stage");
 
-        for condition in stage.should_run.iter() {
-            if !unsafe { run_system(self, condition) } {
-                // stage should not run
+        let mut should_run_flags: ShouldRunFlags = !0;
+        for (i, condition) in stage.should_run.iter().enumerate() {
+            let should_run = unsafe { run_system(self, condition) };
+            if !should_run {
+                should_run_flags ^= 1 << i;
                 #[cfg(feature = "tracing")]
                 tracing::trace!(
                     stage_name = stage.name.to_string(),
                     "Stage should_run was false"
                 );
-                return;
             }
         }
 
@@ -641,14 +642,16 @@ impl World {
         cfg_if!(
             if #[cfg(feature = "parallel")] {
                 let schedule = &self.schedule[i];
-                let graph = schedule.jobs(systems, self);
+                let graph = schedule.jobs(systems, should_run_flags, self);
 
                 #[cfg(feature = "tracing")]
                 tracing::debug!(graph = tracing::field::debug(&graph), "Running job graph");
 
                 self.job_system.run_graph(&graph);
             } else {
-                for system in systems.iter() {
+                for system in systems.iter().filter(|sys| {
+                    sys.should_run_mask & should_run_flags == sys.should_run_mask
+                }) {
                     unsafe {
                         run_system(self, system);
                     }
