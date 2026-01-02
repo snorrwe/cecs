@@ -4,10 +4,10 @@ use std::ptr::NonNull;
 use smallvec::SmallVec;
 
 use crate::{
+    World,
     job_system::HomogeneousJobGraph,
     query::QueryProperties,
-    systems::{ErasedSystem, SystemJob, SystemStage},
-    World,
+    systems::{ErasedSystem, ShouldRunFlags, SystemJob, SystemStage},
 };
 
 #[derive(Debug, Clone)]
@@ -60,6 +60,7 @@ impl Schedule {
     pub fn jobs<'a, T>(
         &self,
         stage: &[ErasedSystem<'a, T>],
+        mask: ShouldRunFlags,
         world: &World,
     ) -> HomogeneousJobGraph<SystemJob<'a, T>> {
         debug_assert_eq!(stage.len(), self.parents.len());
@@ -67,6 +68,7 @@ impl Schedule {
         let mut graph = HomogeneousJobGraph::new(
             stage
                 .iter()
+                .filter(|sys| sys.should_run_mask & mask == sys.should_run_mask)
                 .map(|s| SystemJob {
                     // TODO: neither of these should move in memory
                     // so maybe memoize the vector and clone per tick?

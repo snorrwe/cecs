@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test;
 
-use std::{any::TypeId, collections::HashSet, ptr::NonNull, sync::Arc};
+use std::{any::TypeId, collections::HashSet, ptr::NonNull, sync::Arc, u128};
 
 use cfg_if::cfg_if;
 use rustc_hash::FxHashMap;
@@ -80,7 +80,18 @@ impl<'a> From<SystemStageBuilder<'a>> for SystemStage<'a> {
 }
 
 impl<'a> SystemStageBuilder<'a> {
-    pub fn build(self) -> SystemStage<'a> {
+    pub fn build(mut self) -> SystemStage<'a> {
+        let nflags = self.should_run.len();
+
+        let mut mask = 0;
+        for i in 0..nflags {
+            mask |= 1 << i;
+        }
+
+        for sys in self.systems.iter_mut() {
+            sys.should_run_mask = mask;
+        }
+
         SystemStage {
             name: self.name,
             systems: sorted_systems(self.systems),
@@ -135,6 +146,7 @@ impl<'a> SystemStageBuilder<'a> {
             execute: (descriptor.factory)(),
             system_idx,
             descriptor,
+            should_run_mask: 0,
         };
         self.systems.push(system);
         self
@@ -191,10 +203,14 @@ pub struct SystemDescriptor<'a, R> {
 unsafe impl<'a, R> Send for SystemDescriptor<'a, R> {}
 unsafe impl<'a, R> Sync for SystemDescriptor<'a, R> {}
 
+pub type ShouldRunFlags = u128;
+
 pub struct ErasedSystem<'a, R> {
     pub(crate) system_idx: usize,
     pub(crate) execute: Box<InnerSystem<'a, R>>,
     pub(crate) descriptor: Arc<SystemDescriptor<'a, R>>,
+    /// System is enabled iff `should_run_flags & should_run_mask == should_run_mask`
+    pub(crate) should_run_mask: ShouldRunFlags,
 }
 
 impl<'a, R> From<SystemDescriptor<'a, R>> for ErasedSystem<'a, R> {
@@ -204,6 +220,7 @@ impl<'a, R> From<SystemDescriptor<'a, R>> for ErasedSystem<'a, R> {
             execute: (descriptor.factory)(),
             system_idx: 0,
             descriptor,
+            should_run_mask: 0,
         }
     }
 }
@@ -217,6 +234,7 @@ impl<'a, R> Clone for ErasedSystem<'a, R> {
             system_idx: self.system_idx,
             execute: (self.descriptor.factory)(),
             descriptor: self.descriptor.clone(),
+            should_run_mask: self.should_run_mask,
         }
     }
 }
