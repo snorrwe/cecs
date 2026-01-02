@@ -71,6 +71,7 @@ pub struct SystemStageBuilder<'a> {
     pub name: String,
     pub should_run: SystemStorage<ErasedSystem<'a, bool>>,
     pub systems: SystemStorage<ErasedSystem<'a, ()>>,
+    pub nested: Vec<SystemStageBuilder<'a>>,
 }
 
 impl<'a> From<SystemStageBuilder<'a>> for SystemStage<'a> {
@@ -79,23 +80,44 @@ impl<'a> From<SystemStageBuilder<'a>> for SystemStage<'a> {
     }
 }
 
+fn collapse_stages<'a>(
+    should_run: &mut SystemStorage<ErasedSystem<'a, bool>>,
+    systems: &mut SystemStorage<ErasedSystem<'a, ()>>,
+    mut stage: SystemStageBuilder<'a>,
+    mut flags: usize,
+    mut mask: ShouldRunFlags,
+) {
+    let nflags = stage.should_run.len();
+    assert!(
+        nflags + flags < 128,
+        "Up to 128 should_run systems are supported in a stage. Including child stages"
+    );
+    for i in flags..flags + nflags {
+        mask |= 1 << i;
+    }
+    flags += nflags;
+    for sys in stage.systems.iter_mut() {
+        sys.should_run_mask = mask;
+    }
+    systems.extend(stage.systems.into_iter());
+    should_run.extend(stage.should_run.into_iter());
+    for child in stage.nested {
+        collapse_stages(should_run, systems, child, flags, mask);
+    }
+}
+
 impl<'a> SystemStageBuilder<'a> {
-    pub fn build(mut self) -> SystemStage<'a> {
-        let nflags = self.should_run.len();
+    pub fn build(self) -> SystemStage<'a> {
+        let mut systems = Default::default();
+        let mut should_run = Default::default();
+        let name = self.name.clone();
 
-        let mut mask = 0;
-        for i in 0..nflags {
-            mask |= 1 << i;
-        }
-
-        for sys in self.systems.iter_mut() {
-            sys.should_run_mask = mask;
-        }
+        collapse_stages(&mut should_run, &mut systems, self, 0, 0);
 
         SystemStage {
-            name: self.name,
-            systems: sorted_systems(self.systems),
-            should_run: sorted_systems(self.should_run),
+            name: name,
+            systems: sorted_systems(systems),
+            should_run: sorted_systems(should_run),
         }
     }
 
@@ -104,11 +126,23 @@ impl<'a> SystemStageBuilder<'a> {
             name: name.into(),
             should_run: SystemStorage::with_capacity(1),
             systems: SystemStorage::with_capacity(4),
+            ..Default::default()
         }
+    }
+
+    pub fn with_nested_stage(mut self, stage: SystemStageBuilder<'a>) -> Self {
+        self.add_nested_stage(stage);
+        self
+    }
+
+    pub fn add_nested_stage(&mut self, stage: SystemStageBuilder<'a>) {
+        self.nested.push(stage);
     }
 
     /// Multiple should_runs will be executed serially, and "and'ed" together in the same order as
     /// they were registered.
+    ///
+    /// Nested stages inherit their parent should_run systems
     pub fn with_should_run<S, P>(mut self, system: S) -> Self
     where
         S: IntoSystem<'a, P, bool>,
