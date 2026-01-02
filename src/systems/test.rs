@@ -99,3 +99,40 @@ fn test_nested_stage_should_run() {
 
     assert_eq!(c.0, 1);
 }
+
+#[test]
+fn test_nested_stage_parent_falsy_should_run_disabled_child_systems() {
+    let mut w = World::new(0);
+
+    let stage = SystemStage::new("root")
+        .with_should_run(|| false)
+        .with_system(|| unreachable!())
+        .with_nested_stage(SystemStage::new("nested").with_system(|| unreachable!()));
+
+    w.run_stage(stage);
+}
+
+#[test]
+fn test_nested_stage() {
+    let mut w = World::new(0);
+    w.insert_resource(Counter(0));
+
+    let stage = SystemStage::new("root")
+        .with_system(|mut c: ResMut<Counter>| {
+            c.0 += 1;
+        })
+        .with_nested_stage(
+            SystemStage::new("nested").with_system(|mut c: ResMut<Counter>| {
+                c.0 += 1;
+            }),
+        )
+        .build();
+
+    assert_eq!(stage.systems.len(), 2);
+
+    w.run_stage(stage);
+
+    let c: &Counter = w.get_resource().unwrap();
+
+    assert_eq!(c.0, 2);
+}
