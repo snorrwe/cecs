@@ -71,6 +71,10 @@ pub struct SystemStageBuilder<'a> {
     pub name: String,
     pub should_run: SystemStorage<ErasedSystem<'a, bool>>,
     pub systems: SystemStorage<ErasedSystem<'a, ()>>,
+    /// Nested stages inherit the parent `should_run` conditions
+    /// By default, nested systems are ordered after the parent systems
+    ///
+    /// Nested stages share their Commands apply point with the parent stage
     pub nested: Vec<SystemStageBuilder<'a>>,
 }
 
