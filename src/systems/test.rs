@@ -174,27 +174,27 @@ fn test_nested_stage_should_run_with_siblings() {
     let mut w = World::new(0);
     w.insert_resource(Counter(0));
 
-    fn should_always_run() -> bool {
-        true
-    }
-    fn should_never_run() -> bool {
-        false
-    }
-
     let stage = SystemStage::new("root")
-        .with_should_run(should_always_run)
+        .with_should_run(|| true)
         .with_system(|mut c: ResMut<Counter>| {
             c.0 += 1;
         })
         .with_nested_stage(
             SystemStage::new("nested1")
-                .with_should_run(should_never_run)
+                .with_should_run(|| false)
                 .with_system(|| unreachable!()),
         )
         .with_nested_stage(
-            SystemStage::new("nested2").with_system(|mut c: ResMut<Counter>| {
-                c.0 += 1;
-            }),
+            SystemStage::new("nested2")
+                .with_should_run(|| false)
+                .with_system(|| unreachable!()),
+        )
+        .with_nested_stage(
+            SystemStage::new("nested3")
+                .with_should_run(|| true)
+                .with_system(|mut c: ResMut<Counter>| {
+                    c.0 += 1;
+                }),
         );
 
     w.run_stage(stage);
