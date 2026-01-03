@@ -1,4 +1,4 @@
-use crate::{World, prelude::ResMut};
+use crate::{World, prelude::ResMut, systems::IntoSystem};
 
 use super::SystemStage;
 
@@ -135,4 +135,35 @@ fn test_nested_stage() {
     let c: &Counter = w.get_resource().unwrap();
 
     assert_eq!(c.0, 2);
+}
+
+/// The system should_run masks should work even if the should_run systems are reordered
+#[test]
+fn test_nested_stage_should_run_with_reorder() {
+    let mut w = World::new(0);
+    w.insert_resource(Counter(0));
+
+    fn should_always_run() -> bool {
+        true
+    }
+    fn should_never_run() -> bool {
+        false
+    }
+
+    let stage = SystemStage::new("root")
+        .with_should_run(should_always_run.after(should_never_run))
+        .with_system(|mut c: ResMut<Counter>| {
+            c.0 += 1;
+        })
+        .with_nested_stage(
+            SystemStage::new("nested")
+                .with_should_run(should_never_run)
+                .with_system(|| unreachable!()),
+        );
+
+    w.run_stage(stage);
+
+    let c: &Counter = w.get_resource().unwrap();
+
+    assert_eq!(c.0, 1);
 }
