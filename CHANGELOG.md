@@ -1,4 +1,22 @@
 Changelog
+## [0.1.9] - 2026-01-03
+
+### 🚀 Features
+
+- Add stage nesting
+
+### 🐛 Bug Fixes
+
+- Fix sparse saves.
+
+### 🚜 Refactor
+
+- [**breaking**] Run all should_run systems, even if one fails the check
+
+### ⚙️ Miscellaneous Tasks
+
+- Update dependencies
+
 ## [0.1.8] - 2025-09-26
 
 ### 🚀 Features
