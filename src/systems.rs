@@ -112,25 +112,28 @@ fn collapse_stages<'a>(
     should_run: &mut SystemStorage<ErasedSystem<'a, bool>>,
     systems: &mut SystemStorage<ErasedSystem<'a, ()>>,
     mut stage: SystemStageBuilder<'a>,
-    mut flags: usize,
+    // mask should be 'reset' between siblings
+    // but the number_of_flags should be global, so siblings don't override each-other's should_run
+    // masks
+    number_of_flags: &mut usize,
     mut mask: ShouldRunFlags,
 ) {
     let nflags = stage.should_run.len();
     assert!(
-        nflags + flags < 128,
+        nflags + *number_of_flags < 128,
         "Up to 128 should_run systems are supported in a stage. Including child stages"
     );
-    for i in flags..flags + nflags {
+    for i in *number_of_flags..*number_of_flags + nflags {
         mask |= 1 << i;
     }
-    flags += nflags;
+    *number_of_flags += nflags;
     for sys in stage.systems.iter_mut() {
         sys.should_run_mask = mask;
     }
     systems.extend(stage.systems.into_iter());
     should_run.extend(stage.should_run.into_iter());
     for child in stage.nested {
-        collapse_stages(should_run, systems, child, flags, mask);
+        collapse_stages(should_run, systems, child, number_of_flags, mask);
     }
 }
 
@@ -140,7 +143,7 @@ impl<'a> SystemStageBuilder<'a> {
         let mut should_run = Default::default();
         let name = self.name.clone();
 
-        collapse_stages(&mut should_run, &mut systems, self, 0, 0);
+        collapse_stages(&mut should_run, &mut systems, self, &mut 0, 0);
 
         let should_run: Vec<_> = should_run.into_iter().enumerate().collect();
 
