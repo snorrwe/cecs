@@ -65,22 +65,37 @@ impl Schedule {
     ) -> HomogeneousJobGraph<SystemJob<'a, T>> {
         debug_assert_eq!(stage.len(), self.parents.len());
 
+        // The filtering (by the mask) will displace jobs ids which can cause UB/segfault when
+        // setting the dependencies
+        let mut id_map = FxHashMap::default();
+
         let mut graph = HomogeneousJobGraph::new(
             stage
                 .iter()
-                .filter(|sys| sys.should_run_mask & mask == sys.should_run_mask)
-                .map(|s| SystemJob {
-                    // TODO: neither of these should move in memory
-                    // so maybe memoize the vector and clone per tick?
-                    world: NonNull::from(world),
-                    sys: NonNull::from(s),
+                .enumerate()
+                .filter(|(_, sys)| sys.should_run_mask & mask == sys.should_run_mask)
+                .enumerate()
+                .map(|(new_id, (old_id, s))| {
+                    id_map.insert(old_id, new_id);
+                    SystemJob {
+                        // TODO: neither of these should move in memory
+                        // so maybe memoize the vector and clone per tick?
+                        world: NonNull::from(world),
+                        sys: NonNull::from(s),
+                    }
                 })
                 .collect::<Vec<_>>(),
         );
 
         for (i, parents) in self.parents.iter().enumerate() {
+            let Some(i) = id_map.get(&i) else {
+                continue;
+            };
             for j in parents {
-                graph.add_dependency(*j, i);
+                let Some(j) = id_map.get(&j) else {
+                    continue;
+                };
+                graph.add_dependency(*j, *i);
             }
         }
 
