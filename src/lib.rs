@@ -625,7 +625,7 @@ impl World {
         tracing::trace!(stage_name = stage_name.as_str(), "Run stage");
 
         let mut should_run_flags: ShouldRunFlags = !0;
-        for (i, condition) in stage.should_run.iter().enumerate() {
+        for (i, condition) in stage.should_run.iter() {
             let should_run = unsafe { run_system(self, condition) };
             if !should_run {
                 should_run_flags ^= 1 << i;

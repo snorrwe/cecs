@@ -16,17 +16,41 @@ pub type ShouldRunSystem<'a> = InnerSystem<'a, bool>;
 
 type SystemStorage<T> = Vec<T>;
 
-pub fn sorted_systems<'a, T>(
-    sys: impl IntoIterator<Item = ErasedSystem<'a, T>>,
-) -> Vec<ErasedSystem<'a, T>> {
+/// Types that are topolically sortable
+pub trait Topological {
+    fn id(&self) -> TypeId;
+    fn after<'a>(&'a self) -> impl Iterator<Item = TypeId> + 'a;
+}
+
+impl<T> Topological for ErasedSystem<'_, T> {
+    fn id(&self) -> TypeId {
+        self.descriptor.id
+    }
+
+    fn after<'a>(&'a self) -> impl Iterator<Item = TypeId> + 'a {
+        self.descriptor.after.iter().copied()
+    }
+}
+
+impl<T> Topological for (usize, ErasedSystem<'_, T>) {
+    fn id(&self) -> TypeId {
+        self.1.descriptor.id
+    }
+
+    fn after<'a>(&'a self) -> impl Iterator<Item = TypeId> + 'a {
+        self.1.descriptor.after.iter().copied()
+    }
+}
+
+pub fn sorted_systems<T: Topological>(sys: impl IntoIterator<Item = T>) -> Vec<T> {
     // TODO: allow the same system id to appear multiple times?
     let mut systems = FxHashMap::default();
     // preserve the original order if no other ordering requirement is present
     let mut systemids = Vec::new();
     for s in sys.into_iter() {
         // ensure unique keys even if there are duplicate systems
-        systemids.push(s.descriptor.id);
-        let _r = systems.insert(s.descriptor.id, s);
+        systemids.push(s.id());
+        let _r = systems.insert(s.id(), s);
         assert!(
             _r.is_none(),
             "Duplicate systems are not allowed in a single stage"
@@ -41,10 +65,10 @@ pub fn sorted_systems<'a, T>(
     res
 }
 
-fn topo_sort_systems<'a, T>(
+fn topo_sort_systems<T: Topological>(
     id: TypeId,
-    systems: &mut FxHashMap<TypeId, ErasedSystem<'a, T>>,
-    out: &mut Vec<ErasedSystem<'a, T>>,
+    systems: &mut FxHashMap<TypeId, T>,
+    out: &mut Vec<T>,
     pending: &mut Vec<TypeId>,
 ) {
     assert!(!pending.contains(&id), "Circular dependencies detected");
@@ -52,7 +76,7 @@ fn topo_sort_systems<'a, T>(
         return;
     };
     pending.push(id);
-    for id in sys.descriptor.after.iter().copied() {
+    for id in sys.after() {
         topo_sort_systems(id, systems, out, pending);
     }
     pending.pop();
@@ -62,7 +86,7 @@ fn topo_sort_systems<'a, T>(
 #[derive(Clone, Default)]
 pub struct SystemStage<'a> {
     pub name: String,
-    pub(crate) should_run: SystemStorage<ErasedSystem<'a, bool>>,
+    pub(crate) should_run: SystemStorage<(usize, ErasedSystem<'a, bool>)>,
     pub(crate) systems: SystemStorage<ErasedSystem<'a, ()>>,
 }
 
@@ -117,6 +141,8 @@ impl<'a> SystemStageBuilder<'a> {
         let name = self.name.clone();
 
         collapse_stages(&mut should_run, &mut systems, self, 0, 0);
+
+        let should_run: Vec<_> = should_run.into_iter().enumerate().collect();
 
         SystemStage {
             name: name,
