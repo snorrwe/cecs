@@ -1,4 +1,12 @@
 Changelog
+## [0.1.10] - 2026-01-08
+
+### 🐛 Bug Fixes
+
+- Fix should_run masks if should_run systems are reordered
+- Fix should_run masks for sibling stages
+- Fix UB when parallel feature is enabled, and a subset of systems is filtered out via should_run
+
 ## [0.1.9] - 2026-01-03
 
 ### 🚀 Features
