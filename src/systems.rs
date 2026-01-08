@@ -408,7 +408,7 @@ macro_rules! impl_intosys_fn {
     ($($t: ident),* $(,)*) => {
         #[allow(unused_parens)]
         #[allow(unused_mut)]
-        impl<'a, R, F, $($t: WorldQuery<'a> + 'static,)*>
+        impl<'a, R, F, $($t: WorldQuery<'a>,)*>
             IntoSystem<'a, ($($t),*,), R> for F
         where
             F: Fn($($t),*) -> R + 'static + Copy,
