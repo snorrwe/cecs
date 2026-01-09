@@ -642,7 +642,7 @@ impl World {
         cfg_if!(
             if #[cfg(feature = "parallel")] {
                 let schedule = &self.schedule[i];
-                let graph = schedule.jobs(systems, should_run_flags, self);
+                let graph = unsafe {schedule.jobs(systems, should_run_flags, self)};
 
                 #[cfg(feature = "tracing")]
                 tracing::debug!(graph = tracing::field::debug(&graph), "Running job graph");
