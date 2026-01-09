@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::{table::EntityTable, Component};
+use crate::{Component, table::EntityTable};
 
 pub trait Filter {
     fn filter(archetype: &EntityTable) -> bool;

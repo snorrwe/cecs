@@ -1,8 +1,8 @@
 use std::ptr::NonNull;
 
 use crate::{
-    entity_id::EntityId, prelude::Bundle, query::WorldQuery, Component, UnsafeBuffer, World,
-    WorldError,
+    Component, UnsafeBuffer, World, WorldError, entity_id::EntityId, prelude::Bundle,
+    query::WorldQuery,
 };
 
 pub struct Commands<'a> {
@@ -274,7 +274,7 @@ impl EntityCommands {
                 if let Err(err) = world.insert_id(id) {
                     match err {
                         crate::entity_index::InsertError::Taken(_) => {
-                            return Err(WorldError::InsertInvalidId(id))
+                            return Err(WorldError::InsertInvalidId(id));
                         }
                         crate::entity_index::InsertError::AlreadyInserted(_) => { /*ignore*/ }
                     }

@@ -1,12 +1,12 @@
 #![recursion_limit = "256"]
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use cecs::{
+    World,
     prelude::*,
     serde::{WorldPersister, WorldSerializer},
-    World,
 };
 
 macro_rules! components {

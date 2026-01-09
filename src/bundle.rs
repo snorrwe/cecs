@@ -1,4 +1,4 @@
-use crate::{hash_ty, table::EntityTable, Component, RowIndex, TypeHash, WorldResult};
+use crate::{Component, RowIndex, TypeHash, WorldResult, hash_ty, table::EntityTable};
 
 pub trait Bundle {
     fn compute_hash_from_table(archetype: &EntityTable) -> TypeHash;
