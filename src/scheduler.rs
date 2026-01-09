@@ -34,7 +34,7 @@ impl Schedule {
         let mut history = vec![QueryProperties::from_system(&systems[0].descriptor)];
         history.reserve(systems.len() - 1);
         res.parents.push(Default::default());
-        debug_assert!(systems[0].descriptor.after.is_empty(), "bad ordering");
+        assert!(systems[0].descriptor.after.is_empty(), "bad ordering");
         for (i, sys) in systems.iter().enumerate().skip(1) {
             let props = QueryProperties::from_system(&sys.descriptor);
             res.parents.push(Default::default());
