@@ -44,7 +44,10 @@ impl Schedule {
                     res.parents[i].push(j);
                 }
             }
-            // explicit orderings
+            // Insert explicit dependencies
+            // SystemStage systems are ordered based on their ordering criteria
+            // So we can't create deadlocks with the above system. We may create duplicate
+            // dependencies, but that's fine
             for id in sys.descriptor.after.iter() {
                 if let Some(j) = indices.get(id) {
                     res.parents[i].push(*j);
