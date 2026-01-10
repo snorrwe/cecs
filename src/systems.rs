@@ -168,8 +168,9 @@ impl<'a> SystemStageBuilder<'a> {
         self
     }
 
-    pub fn add_nested_stage(&mut self, stage: SystemStageBuilder<'a>) {
+    pub fn add_nested_stage(&mut self, stage: SystemStageBuilder<'a>) -> &mut Self {
         self.nested.push(stage);
+        self
     }
 
     /// Multiple should_runs will be executed serially, and "and'ed" together in the same order as
