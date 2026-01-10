@@ -50,7 +50,12 @@ impl Schedule {
             // dependencies, but that's fine
             for id in sys.descriptor.after.iter() {
                 if let Some(j) = indices.get(id) {
-                    res.parents[i].push(*j);
+                    let history = &history[*j];
+                    // only insert a dependency if they're disjoin
+                    // otherwise the previous loop inserted the dependency already
+                    if props.is_disjoint(history) {
+                        res.parents[i].push(*j);
+                    }
                 }
             }
 
