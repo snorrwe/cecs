@@ -42,6 +42,20 @@ impl<'a, T: 'static> Res<'a, T> {
             _m: PhantomData,
         }
     }
+
+    pub fn cloned(&self) -> T
+    where
+        T: Clone,
+    {
+        self.inner.clone()
+    }
+
+    pub fn copied(&self) -> T
+    where
+        T: Copy,
+    {
+        *self.inner
+    }
 }
 
 impl<'a, T: 'static> Deref for Res<'a, T> {
@@ -78,6 +92,20 @@ impl<'a, T: 'static> ResMut<'a, T> {
             inner,
             _m: PhantomData,
         }
+    }
+
+    pub fn cloned(&self) -> T
+    where
+        T: Clone,
+    {
+        self.inner.clone()
+    }
+
+    pub fn copied(&self) -> T
+    where
+        T: Copy,
+    {
+        *self.inner
     }
 }
 
