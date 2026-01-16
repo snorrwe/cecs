@@ -284,8 +284,7 @@ pub struct Column {
     layout: Layout,
     // Type Erased Methods //
     pub(crate) finalize: fn(&mut Column),
-    /// remove is always swap_remove
-    pub(crate) remove: fn(RowIndex, &mut Column),
+    pub(crate) swap_remove: fn(RowIndex, &mut Column),
     #[cfg(feature = "clone")]
     pub(crate) clone: fn(&Column) -> Column,
     pub(crate) clone_empty: fn() -> Column,
@@ -350,7 +349,7 @@ impl Column {
                     std::alloc::dealloc(erased_table.data, erased_table.layout);
                 }
             },
-            remove: |entity_id, erased_table: &mut Column| unsafe {
+            swap_remove: |entity_id, erased_table: &mut Column| unsafe {
                 erased_table.swap_remove::<T>(entity_id as usize);
             },
             #[cfg(feature = "clone")]
@@ -446,6 +445,6 @@ impl Column {
     }
 
     pub fn remove(&mut self, id: RowIndex) {
-        (self.remove)(id, self);
+        (self.swap_remove)(id, self);
     }
 }
