@@ -185,9 +185,10 @@ pub(crate) enum CommandPayload {
 /// Sort actions by type, then entity commands as well.
 ///
 /// Entity Commands ordering:
-/// - insert actions
-/// - update actions
-/// - delete actions
+/// - first sort by their entity id, then sort by:
+///     1. insert actions
+///     2. update actions
+///     3. delete actions
 ///
 /// This way deleting and updating in the same tick is handled as one might expect
 ///
@@ -203,21 +204,24 @@ pub(crate) fn sort_commands(cmd: &mut [CommandPayload]) {
         CommandPayload::World(_) => 2,
     };
     let action_ty = |c: &EntityAction| match c {
-        EntityAction::Init(_) => 0,
-        EntityAction::InsertId(_) => 0,
-        EntityAction::Insert => 0,
-        EntityAction::Fetch(_) => 1,
-        EntityAction::Merge { .. } => 1,
-        EntityAction::Delete(_) => 2,
+        EntityAction::Init(id) => (id.index(), 0),
+        EntityAction::InsertId(id) => (id.index(), 0),
+        EntityAction::Insert => (!0, 0),
+        EntityAction::Fetch(id) => (id.index(), 1),
+        EntityAction::Merge { src, .. } => (src.index(), 1),
+        EntityAction::Delete(id) => (id.index(), 2),
     };
-    cmd.sort_unstable_by_key(cmd_ty);
     // only entity commands need inner sorting
     // entity commands will be the first
-    if let Some(entity_commands) = cmd.chunk_by_mut(|a, b| cmd_ty(a) == cmd_ty(b)).next() {
+    if let Some(entity_commands) = cmd
+        .chunk_by_mut(|a, b| cmd_ty(a) == cmd_ty(b))
+        .filter(|g| matches!(&g[0], &CommandPayload::Entity(_)))
+        .next()
+    {
         entity_commands.sort_unstable_by_key(|a| {
             match a {
                 CommandPayload::Entity(a) => action_ty(&a.action),
-                _ => 0,
+                _ => unreachable!(),
             };
         });
     }
