@@ -797,7 +797,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a T> {
     type ItMut<'b> = Box<dyn Iterator<Item = Self::ItemMut<'b>> + 'b>;
 
     fn iter(archetype: &EntityTable) -> Self::It<'_> {
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => {
                 Box::new(unsafe { (&*columns.get()).as_slice::<T>().iter() }.map(Some))
             }
@@ -810,7 +810,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a T> {
     }
 
     unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_> {
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => Box::new(
                 unsafe { (&mut *columns.get()).as_slice_mut::<T>().iter_mut() }
                     .map(|x| x as *mut _)
@@ -854,7 +854,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a T> {
     fn iter_range(archetype: &EntityTable, range: impl RangeBounds<usize>) -> Self::It<'_> {
         let len = archetype.len();
         let range = slice::range(range, ..len);
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => unsafe {
                 let col = (&*columns.get()).as_slice::<T>();
                 Box::new(col[range].iter().map(Some))
@@ -880,7 +880,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     type ItMut<'b> = Box<dyn Iterator<Item = Self::ItemMut<'b>> + 'b>;
 
     fn iter(archetype: &EntityTable) -> Self::It<'_> {
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => {
                 Box::new(unsafe { (&*columns.get()).as_slice::<T>().iter() }.map(Some))
             }
@@ -889,7 +889,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     }
 
     fn iter_mut(archetype: &EntityTable) -> Self::ItMut<'_> {
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => {
                 Box::new(unsafe { (&mut *columns.get()).as_slice_mut::<T>().iter_mut() }.map(Some))
             }
@@ -898,7 +898,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     }
 
     unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_> {
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => Box::new(
                 unsafe { (&mut *columns.get()).as_slice_mut::<T>().iter_mut() }
                     .map(|x| x as *mut _)
@@ -942,7 +942,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     fn iter_range(archetype: &EntityTable, range: impl RangeBounds<usize>) -> Self::It<'_> {
         let len = archetype.len();
         let range = slice::range(range, ..len);
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => unsafe {
                 let col = (&*columns.get()).as_slice::<T>();
                 Box::new(col[range].iter().map(Some))
@@ -957,7 +957,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     ) -> Self::ItMut<'_> {
         let len = archetype.len();
         let range = slice::range(range, ..len);
-        match archetype.components.get(&TypeId::of::<T>()) {
+        match archetype.get_column(&TypeId::of::<T>()) {
             Some(columns) => unsafe {
                 let col = (&mut *columns.get()).as_slice_mut::<T>();
                 Box::new(col[range].iter_mut().map(Some))
@@ -1004,9 +1004,8 @@ impl<'a, T: Component> QueryFragment for &'a T {
 
     fn iter(archetype: &EntityTable) -> Self::It<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
-            .map(|columns| unsafe { (&*columns.get()).as_slice::<T>().iter() })
+            .get_column(&TypeId::of::<T>())
+            .map(|column| unsafe { (&*column.get()).as_slice::<T>().iter() })
             .into_iter()
             .flatten()
     }
@@ -1018,10 +1017,9 @@ impl<'a, T: Component> QueryFragment for &'a T {
     unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_> {
         Box::new(
             archetype
-                .components
-                .get(&TypeId::of::<T>())
-                .map(|columns| unsafe {
-                    let slice = (&mut *columns.get()).as_slice_mut::<T>();
+                .get_column(&TypeId::of::<T>())
+                .map(|column| unsafe {
+                    let slice = (&mut *column.get()).as_slice_mut::<T>();
                     let ptr = slice.as_mut_ptr();
                     let len = slice.len();
                     (0..len).map(move |i| ptr.add(i))
@@ -1037,8 +1035,7 @@ impl<'a, T: Component> QueryFragment for &'a T {
 
     fn iter_range(archetype: &EntityTable, range: impl RangeBounds<usize>) -> Self::ItMut<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
+            .get_column(&TypeId::of::<T>())
             .map(|columns| unsafe {
                 let col = (&*columns.get()).as_slice::<T>();
                 let len = col.len();
@@ -1067,8 +1064,7 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
 
     fn iter(archetype: &EntityTable) -> Self::It<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
+            .get_column(&TypeId::of::<T>())
             .map(|columns| unsafe { (&*columns.get()).as_slice::<T>().iter() })
             .into_iter()
             .flatten()
@@ -1076,8 +1072,7 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
 
     fn iter_mut(archetype: &EntityTable) -> Self::ItMut<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
+            .get_column(&TypeId::of::<T>())
             .map(|columns| unsafe { (&mut *columns.get()).as_slice_mut::<T>().iter_mut() })
             .into_iter()
             .flatten()
@@ -1086,10 +1081,9 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
     unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_> {
         Box::new(
             archetype
-                .components
-                .get(&TypeId::of::<T>())
-                .map(|columns| unsafe {
-                    let slice = (&mut *columns.get()).as_slice_mut::<T>();
+                .get_column(&TypeId::of::<T>())
+                .map(|column| unsafe {
+                    let slice = (&mut *column.get()).as_slice_mut::<T>();
                     let ptr = slice.as_mut_ptr();
                     let len = slice.len();
                     (0..len).map(move |i| ptr.add(i))
@@ -1134,8 +1128,7 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
 
     fn iter_range(archetype: &EntityTable, range: impl RangeBounds<usize>) -> Self::It<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
+            .get_column(&TypeId::of::<T>())
             .map(|columns| unsafe {
                 let col = (&mut *columns.get()).as_slice::<T>();
                 let len = col.len();
@@ -1151,8 +1144,7 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
         range: impl RangeBounds<usize> + Clone,
     ) -> Self::ItMut<'_> {
         archetype
-            .components
-            .get(&TypeId::of::<T>())
+            .get_column(&TypeId::of::<T>())
             .map(|columns| unsafe {
                 let col = (&mut *columns.get()).as_slice_mut::<T>();
                 let len = col.len();

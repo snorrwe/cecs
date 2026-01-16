@@ -1,5 +1,5 @@
 use crate::{Component, RowIndex, TypeHash, entity_id::EntityId, hash_ty, hash_type_id};
-use std::{alloc::Layout, any::TypeId, cell::UnsafeCell, collections::BTreeMap};
+use std::{alloc::Layout, any::TypeId, cell::UnsafeCell};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArchetypeHash(pub TypeHash);
@@ -16,7 +16,7 @@ pub struct EntityTable {
     pub(crate) ty: TypeHash,
     pub(crate) rows: u32,
     pub(crate) entities: Vec<EntityId>,
-    pub(crate) components: BTreeMap<TypeId, UnsafeCell<Column>>,
+    pub(crate) components: Vec<(TypeId, UnsafeCell<Column>)>,
 }
 
 unsafe impl Send for EntityTable {}
@@ -54,8 +54,8 @@ impl std::fmt::Debug for EntityTable {
                 "components",
                 &self
                     .components
-                    .values()
-                    .map(|c| unsafe { &*c.get() }.ty_name)
+                    .iter()
+                    .map(|(_, c)| unsafe { &*c.get() }.ty_name)
                     .collect::<Vec<_>>(),
             )
             .finish()
@@ -65,8 +65,8 @@ impl std::fmt::Debug for EntityTable {
 impl EntityTable {
     pub fn empty() -> Self {
         let ty = hash_ty::<()>();
-        let mut components = BTreeMap::new();
-        components.insert(TypeId::of::<()>(), UnsafeCell::new(Column::new::<()>(0)));
+        let mut components = Vec::new();
+        components.push((TypeId::of::<()>(), UnsafeCell::new(Column::new::<()>(0))));
         Self {
             ty,
             rows: 0,
@@ -127,7 +127,7 @@ impl EntityTable {
             moved = Some(self.entities[index as usize]);
         }
         for (ty, src) in self.components.iter_mut() {
-            if let Some(dst) = dst.components.get_mut(ty) {
+            if let Some(dst) = dst.get_column_mut(ty) {
                 (src.get_mut().move_row)(src.get_mut(), dst.get_mut(), index);
             } else {
                 // destination does not have self column
@@ -135,6 +135,20 @@ impl EntityTable {
             }
         }
         (res, moved)
+    }
+
+    pub(crate) fn get_column_mut(&mut self, ty: &TypeId) -> Option<&mut UnsafeCell<Column>> {
+        self.components
+            .binary_search_by(|(k, _)| k.cmp(ty))
+            .map(|i| &mut self.components[i].1)
+            .ok()
+    }
+
+    pub(crate) fn get_column(&self, ty: &TypeId) -> Option<&UnsafeCell<Column>> {
+        self.components
+            .binary_search_by(|(k, _)| k.cmp(ty))
+            .map(|i| &self.components[i].1)
+            .ok()
     }
 
     /// return the moved entity in `self`, if any
@@ -153,7 +167,7 @@ impl EntityTable {
             moved = Some(self.entities[src_index as usize]);
         }
         for (ty, col) in self.components.iter_mut() {
-            if let Some(dst) = dst.components.get_mut(ty) {
+            if let Some(dst) = dst.get_column_mut(ty) {
                 (col.get_mut().move_row_into)(col.get_mut(), src_index, dst.get_mut(), dst_index);
             } else {
                 // destination does not have this column
@@ -166,8 +180,7 @@ impl EntityTable {
     pub fn set_component<T: 'static>(&mut self, row_index: RowIndex, val: T) {
         unsafe {
             let table = self
-                .components
-                .get_mut(&TypeId::of::<T>())
+                .get_column_mut(&TypeId::of::<T>())
                 .expect("set_component called on bad archetype")
                 .get_mut();
 
@@ -188,7 +201,7 @@ impl EntityTable {
     }
 
     pub fn contains_column_ty(&self, ty: TypeId) -> bool {
-        self.components.contains_key(&ty)
+        self.get_column(&ty).is_some()
     }
 
     pub fn extended_hash<T: Component>(&self) -> TypeHash {
@@ -203,8 +216,17 @@ impl EntityTable {
         if !self.contains_column::<T>() {
             let new_ty = self.extended_hash::<T>();
             self.ty = new_ty;
-            self.components
-                .insert(TypeId::of::<T>(), UnsafeCell::new(Column::new::<T>(2)));
+
+            let t = TypeId::of::<T>();
+            match self.components.binary_search_by_key(&t, |(k, _)| *k) {
+                Ok(_) => {
+                    unreachable!()
+                }
+                Err(i) => {
+                    self.components
+                        .insert(i, (t, UnsafeCell::new(Column::new::<T>(2))));
+                }
+            }
         }
         self
     }
@@ -213,12 +235,12 @@ impl EntityTable {
     pub fn merged(&self, rhs: &Self) -> Self {
         let mut result = self.clone_empty();
         for (col, table) in rhs.components.iter() {
-            if !self.contains_column_ty(*col) {
+            if let Err(i) = self.components.binary_search_by_key(col, |(k, _)| *k) {
                 let table = unsafe { &*table.get() };
                 result.ty = result.extended_hash_ty(hash_type_id(*col));
                 result
                     .components
-                    .insert(*col, UnsafeCell::new((table.clone_empty)()));
+                    .insert(i, (*col, UnsafeCell::new((table.clone_empty)())));
             }
         }
         result
@@ -226,7 +248,7 @@ impl EntityTable {
 
     /// Swap all components of two entities
     pub fn swap_components(&mut self, a: RowIndex, b: RowIndex) {
-        for table in self.components.values_mut() {
+        for table in self.components.iter_mut().map(|(_, v)| v) {
             let table = table.get_mut();
             (table.swap_rows)(table, a, b);
         }
@@ -236,7 +258,12 @@ impl EntityTable {
         if self.contains_column::<T>() {
             let new_ty = self.extended_hash::<T>();
             self.ty = new_ty;
-            self.components.remove(&TypeId::of::<T>()).unwrap();
+            if let Ok(i) = self
+                .components
+                .binary_search_by_key(&TypeId::of::<T>(), |(k, _)| *k)
+            {
+                self.components.remove(i);
+            }
         }
         self
     }
@@ -246,7 +273,7 @@ impl EntityTable {
             ty: self.ty,
             rows: 0,
             entities: Vec::with_capacity(self.entities.len()),
-            components: BTreeMap::from_iter(
+            components: Vec::from_iter(
                 self.components
                     .iter()
                     .map(|(id, col)| (*id, (unsafe { &*col.get() }.clone_empty)()))
@@ -256,15 +283,13 @@ impl EntityTable {
     }
 
     pub fn get_component<T: 'static>(&self, row: RowIndex) -> Option<&T> {
-        self.components
-            .get(&TypeId::of::<T>())
+        self.get_column(&TypeId::of::<T>())
             .and_then(|rows| unsafe { (*rows.get()).as_slice().get(row as usize) })
     }
 
     /// # SAFETY caller must ensure that no mutable aliasing happens to the row
     pub unsafe fn get_component_mut<T: 'static>(&self, row: RowIndex) -> Option<&mut T> {
-        self.components
-            .get(&TypeId::of::<T>())
+        self.get_column(&TypeId::of::<T>())
             .and_then(|rows| unsafe { (*rows.get()).as_slice_mut().get_mut(row as usize) })
     }
 

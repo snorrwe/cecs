@@ -693,7 +693,8 @@ impl World {
         Some(unsafe {
             arch.as_ref()
                 .components
-                .keys()
+                .iter()
+                .map(|(k, _)| k)
                 .filter(|k| k != &&TypeId::of::<()>())
                 .copied()
                 .collect()
@@ -768,9 +769,9 @@ impl World {
         // figure out the new archetype hash
         let mut dst_hash = rhs_archetype.ty();
         if dst_hash != lhs_archetype.ty() {
-            for col in lhs_archetype.components.keys() {
-                if !rhs_archetype.components.contains_key(col) {
-                    dst_hash ^= hash_type_id(*col);
+            for col in lhs_archetype.components.iter().map(|(k, _)| *k) {
+                if !rhs_archetype.contains_column_ty(col) {
+                    dst_hash ^= hash_type_id(col);
                 }
             }
         }
@@ -825,8 +826,7 @@ impl World {
         // else move
         for (ty, col) in lhs_archetype.components.iter_mut() {
             let dst_col = dst_arch
-                .components
-                .get_mut(ty)
+                .get_column_mut(ty)
                 .expect("dst should have all lhs components")
                 .get_mut();
             if rhs_archetype.contains_column_ty(*ty) {
