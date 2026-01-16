@@ -122,6 +122,130 @@ fn benchmark_systems(c: &mut Criterion) {
     });
 }
 
+#[cfg(feature = "clone")]
+fn benchmark_commands(c: &mut Criterion) {
+    let mut group = c.benchmark_group("commands");
+
+    group.bench_function("spawn-10k-entity-inserts-components", |b| {
+        b.iter_batched(
+            || World::new(10000),
+            |mut world| {
+                world
+                    .run_system(|mut cmd: Commands| {
+                        for _ in 0..10000 {
+                            cmd.spawn().insert(C1);
+                            cmd.spawn().insert(C2);
+                            cmd.spawn().insert(C3);
+                            cmd.spawn().insert(C4);
+                            cmd.spawn().insert(C5);
+                            cmd.spawn().insert(C6);
+                        }
+                    })
+                    .unwrap();
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
+
+    group.bench_function("spawn-10k-entity-bundle", |b| {
+        b.iter_batched(
+            || World::new(10000),
+            |mut world| {
+                world
+                    .run_system(|mut cmd: Commands| {
+                        for _ in 0..10000 {
+                            cmd.spawn().insert_bundle((C1, C2, C3, C4, C5, C6));
+                        }
+                    })
+                    .unwrap();
+                world
+            },
+            criterion::BatchSize::LargeInput,
+        );
+    });
+
+    group.bench_function("add-component-to-10k-existing-entity", |b| {
+        let mut world = World::new(10000);
+
+        world
+            .run_system(|mut cmd: Commands| {
+                for _ in 0..10000 {
+                    cmd.spawn().insert_bundle((C1, C2, C3, C4, C5, C6));
+                }
+            })
+            .unwrap();
+
+        b.iter_batched(
+            || world.clone(),
+            |mut world| {
+                world
+                    .run_system(|mut cmd: Commands, q: Query<EntityId>| {
+                        for id in q.iter() {
+                            cmd.entity(id).insert_bundle((C7, C8, C9, C10, C11, C12));
+                        }
+                    })
+                    .unwrap();
+            },
+            criterion::BatchSize::PerIteration,
+        );
+    });
+
+    group.bench_function("remove-component-from-10k-existing-entity", |b| {
+        let mut world = World::new(10000);
+
+        world
+            .run_system(|mut cmd: Commands| {
+                for _ in 0..10000 {
+                    cmd.spawn()
+                        .insert_bundle((C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12));
+                }
+            })
+            .unwrap();
+
+        b.iter_batched(
+            || world.clone(),
+            |mut world| {
+                world
+                    .run_system(|mut cmd: Commands, q: Query<EntityId>| {
+                        for id in q.iter() {
+                            cmd.entity(id).remove::<C7>();
+                        }
+                    })
+                    .unwrap();
+            },
+            criterion::BatchSize::PerIteration,
+        );
+    });
+
+    group.bench_function("delete-10k-entity", |b| {
+        let mut world = World::new(10000);
+
+        world
+            .run_system(|mut cmd: Commands| {
+                for _ in 0..10000 {
+                    cmd.spawn()
+                        .insert_bundle((C1, C2, C3, C4, C5, C6, C7, C8, C9, C10, C11, C12));
+                }
+            })
+            .unwrap();
+
+        b.iter_batched(
+            || world.clone(),
+            |mut world| {
+                world
+                    .run_system(|mut cmd: Commands, q: Query<EntityId>| {
+                        for id in q.iter() {
+                            cmd.delete(id);
+                        }
+                    })
+                    .unwrap();
+            },
+            criterion::BatchSize::PerIteration,
+        );
+    });
+}
+
 criterion_group!(query_benches, benchmark_queries);
 criterion_group!(systems_benches, benchmark_systems);
-criterion_main!(query_benches, systems_benches);
+criterion_group!(command_benches, benchmark_commands);
+criterion_main!(query_benches, systems_benches, command_benches);
