@@ -176,10 +176,33 @@ impl<'a> Commands<'a> {
     }
 }
 
+#[derive(Default)]
 pub(crate) enum CommandPayload {
+    #[default]
+    Noop,
     Entity(EntityCommands),
     Resource(ErasedResourceCommand),
     World(WorldCommands),
+}
+
+fn action_ty(c: &EntityAction) -> (u32, u32) {
+    match c {
+        EntityAction::Init(id) => (id.index(), 0),
+        EntityAction::InsertId(id) => (id.index(), 0),
+        EntityAction::Insert => (!0, 0),
+        EntityAction::Fetch(id) => (id.index(), 1),
+        EntityAction::Merge { src, .. } => (src.index(), 1),
+        EntityAction::Delete(id) => (id.index(), 2),
+    }
+}
+
+fn cmd_ty(c: &CommandPayload) -> (u32, u32) {
+    match c {
+        CommandPayload::Entity(e) => action_ty(&e.action),
+        CommandPayload::Resource(_) => (!0, 3),
+        CommandPayload::World(_) => (!0, 4),
+        CommandPayload::Noop => (!0, 5),
+    }
 }
 
 /// Sort actions by type, then entity commands as well.
@@ -197,33 +220,32 @@ pub(crate) enum CommandPayload {
 /// - sort by entity ids
 /// - merge updates
 /// - if theres a delete action, then discard the other updates
-pub(crate) fn sort_commands(cmd: &mut [CommandPayload]) {
-    let cmd_ty = |c: &CommandPayload| match c {
-        CommandPayload::Entity(_) => 0,
-        CommandPayload::Resource(_) => 1,
-        CommandPayload::World(_) => 2,
-    };
-    let action_ty = |c: &EntityAction| match c {
-        EntityAction::Init(id) => (id.index(), 0),
-        EntityAction::InsertId(id) => (id.index(), 0),
-        EntityAction::Insert => (!0, 0),
-        EntityAction::Fetch(id) => (id.index(), 1),
-        EntityAction::Merge { src, .. } => (src.index(), 1),
-        EntityAction::Delete(id) => (id.index(), 2),
-    };
-    // only entity commands need inner sorting
-    // entity commands will be the first
+pub(crate) fn prepare_commands(cmd: &mut Vec<CommandPayload>) {
+    cmd.sort_unstable_by_key(cmd_ty);
+
+    // deduplicate entity commands
+
     if let Some(entity_commands) = cmd
         .chunk_by_mut(|a, b| cmd_ty(a) == cmd_ty(b))
         .filter(|g| matches!(&g[0], &CommandPayload::Entity(_)))
         .next()
     {
-        entity_commands.sort_unstable_by_key(|a| {
-            match a {
-                CommandPayload::Entity(a) => action_ty(&a.action),
-                _ => unreachable!(),
-            };
-        });
+        for g in entity_commands.chunk_by_mut(|a, b| match (a, b) {
+            (CommandPayload::Entity(a), CommandPayload::Entity(b)) => a.can_merge(b),
+            _ => false,
+        }) {
+            if let Some((mut merged, rest)) = g.split_first_mut() {
+                let CommandPayload::Entity(m) = &mut merged else {
+                    unreachable!();
+                };
+                for pl in rest {
+                    let CommandPayload::Entity(pl) = std::mem::take(pl) else {
+                        unreachable!();
+                    };
+                    m.merge(pl);
+                }
+            }
+        }
     }
 }
 
@@ -233,6 +255,7 @@ impl CommandPayload {
             CommandPayload::Entity(c) => c.apply(world),
             CommandPayload::Resource(c) => c.apply(world),
             CommandPayload::World(c) => c.apply(world),
+            CommandPayload::Noop => Ok(()),
         }
     }
 
@@ -251,7 +274,7 @@ pub struct EntityCommands {
     payload: Vec<ErasedComponentCommand>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub enum EntityAction {
     Fetch(EntityId),
     /// Like fetch, but initialize the id first
@@ -266,7 +289,46 @@ pub enum EntityAction {
     },
 }
 
+impl PartialEq for EntityAction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Fetch(l), Self::Fetch(r)) => l == r,
+            (Self::Init(l), Self::Init(r)) => l == r,
+            (Self::InsertId(l), Self::InsertId(r)) => l == r,
+            (Self::Delete(l), Self::Delete(r)) => l == r,
+            (
+                Self::Merge {
+                    src: l_src,
+                    dst: l_dst,
+                },
+                Self::Merge {
+                    src: r_src,
+                    dst: r_dst,
+                },
+            ) => l_src == r_src && l_dst == r_dst,
+            // insert insert are never equal
+            _ => false,
+        }
+    }
+}
+
 impl EntityCommands {
+    pub fn can_merge(&self, other: &EntityCommands) -> bool {
+        self.action == other.action
+    }
+
+    pub fn try_merge(&mut self, other: EntityCommands) -> Result<(), EntityCommands> {
+        if !self.can_merge(&other) {
+            return Err(other);
+        }
+        self.payload.extend(other.payload.into_iter());
+        Ok(())
+    }
+
+    pub fn merge(&mut self, other: EntityCommands) {
+        self.try_merge(other).map_err(drop).unwrap();
+    }
+
     /// Note: fetching the `id` will force entity allocation, which can trigger out of capacity
     /// error, even if you have reserved in this system stage.
     ///

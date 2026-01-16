@@ -37,7 +37,7 @@ mod scheduler;
 use world_access::WorldLock;
 
 use crate::{
-    commands::{CommandError, sort_commands},
+    commands::{CommandError, prepare_commands},
     systems::ShouldRunFlags,
 };
 
@@ -233,7 +233,7 @@ impl World {
                 .iter_mut()
                 .flat_map(|cmd| cmd.get_mut().drain(..)),
         );
-        sort_commands(&mut commands);
+        prepare_commands(&mut commands);
         for cmd in commands.drain(..) {
             cmd.apply(self)?;
         }
