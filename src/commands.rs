@@ -10,6 +10,34 @@ pub struct Commands<'a> {
     cmd: &'a UnsafeBuffer<CommandPayload>,
 }
 
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CommandError {
+    #[error("Failed to delete entity: {id}")]
+    ErrDelete { id: EntityId },
+    #[error("Inserted id ({0}) is invalid and can not be inserted")]
+    InsertInvalidId(EntityId),
+    #[error("Failed to merge entities ({src}, {dst}): {err:?}")]
+    MergeFail {
+        src: EntityId,
+        dst: EntityId,
+        err: WorldError,
+    },
+    #[error("Entity Not Found: {action:?}")]
+    EntityNotFound { action: EntityAction },
+    #[error("Failed to insert component (id={id}) (ty={ty}): {err:?}")]
+    ComponentInsertFailed {
+        id: EntityId,
+        ty: &'static str,
+        err: WorldError,
+    },
+    #[error("Failed to remove component (id={id}) (ty={ty}): {err:?}")]
+    ComponentRemoveFailed {
+        id: EntityId,
+        ty: &'static str,
+        err: WorldError,
+    },
+}
+
 unsafe impl<'a> Send for Commands<'a> {}
 unsafe impl<'a> Sync for Commands<'a> {}
 
@@ -198,7 +226,7 @@ pub(crate) fn sort_commands(cmd: &mut [CommandPayload]) {
 }
 
 impl CommandPayload {
-    pub(crate) fn apply(self, world: &mut World) -> Result<(), WorldError> {
+    pub(crate) fn apply(self, world: &mut World) -> Result<(), CommandError> {
         match self {
             CommandPayload::Entity(c) => c.apply(world),
             CommandPayload::Resource(c) => c.apply(world),
@@ -221,7 +249,8 @@ pub struct EntityCommands {
     payload: Vec<ErasedComponentCommand>,
 }
 
-enum EntityAction {
+#[derive(Debug, Clone, Copy)]
+pub enum EntityAction {
     Fetch(EntityId),
     /// Like fetch, but initialize the id first
     /// Insert actions can become Init actions if the id is requested
@@ -259,7 +288,7 @@ impl EntityCommands {
         }
     }
 
-    pub(crate) fn apply(self, world: &mut World) -> Result<(), WorldError> {
+    pub(crate) fn apply(self, world: &mut World) -> Result<(), CommandError> {
         let id = match self.action {
             EntityAction::Fetch(id) => id,
             EntityAction::Init(id) => {
@@ -274,7 +303,7 @@ impl EntityCommands {
                 if let Err(err) = world.insert_id(id) {
                     match err {
                         crate::entity_index::InsertError::Taken(_) => {
-                            return Err(WorldError::InsertInvalidId(id));
+                            return Err(CommandError::InsertInvalidId(id));
                         }
                         crate::entity_index::InsertError::AlreadyInserted(_) => { /*ignore*/ }
                     }
@@ -294,11 +323,15 @@ impl EntityCommands {
                 return Ok(());
             }
             EntityAction::Merge { src, dst } => {
-                return world.merge_entities(src, dst);
+                return world
+                    .merge_entities(src, dst)
+                    .map_err(|err| CommandError::MergeFail { src, dst, err });
             }
         };
         if !world.is_id_valid(id) {
-            return Err(WorldError::EntityNotFound);
+            return Err(CommandError::EntityNotFound {
+                action: self.action,
+            });
         }
         for cmd in self.payload {
             cmd.apply(id, world)?;
@@ -331,7 +364,7 @@ impl EntityCommands {
 
 pub(crate) struct ErasedComponentCommand {
     inner: *mut (),
-    apply: fn(NonNull<()>, EntityId, &mut World) -> Result<(), WorldError>,
+    apply: fn(NonNull<()>, EntityId, &mut World) -> Result<(), CommandError>,
     drop: fn(NonNull<()>),
 }
 
@@ -347,7 +380,7 @@ impl Drop for ErasedComponentCommand {
 }
 
 impl ErasedComponentCommand {
-    pub fn apply(mut self, id: EntityId, world: &mut World) -> Result<(), WorldError> {
+    pub fn apply(mut self, id: EntityId, world: &mut World) -> Result<(), CommandError> {
         let ptr = NonNull::new(self.inner).unwrap();
         self.inner = std::ptr::null_mut();
         (self.apply)(ptr, id, world)
@@ -393,10 +426,16 @@ pub(crate) enum BundleCommand<T> {
 }
 
 impl<T: Bundle> BundleCommand<T> {
-    fn apply(self, entity_id: EntityId, world: &mut World) -> Result<(), WorldError> {
+    fn apply(self, entity_id: EntityId, world: &mut World) -> Result<(), CommandError> {
         match self {
             BundleCommand::Insert(bundle) => {
-                world.set_bundle(entity_id, bundle)?;
+                world.set_bundle(entity_id, bundle).map_err(|err| {
+                    CommandError::ComponentInsertFailed {
+                        id: entity_id,
+                        ty: std::any::type_name::<T>(),
+                        err,
+                    }
+                })?;
             }
         }
         Ok(())
@@ -409,10 +448,16 @@ pub(crate) enum ComponentCommand<T> {
 }
 
 impl<T: Component> ComponentCommand<T> {
-    fn apply(self, entity_id: EntityId, world: &mut World) -> Result<(), WorldError> {
+    fn apply(self, entity_id: EntityId, world: &mut World) -> Result<(), CommandError> {
         match self {
             ComponentCommand::Insert(comp) => {
-                world.set_component(entity_id, comp)?;
+                world.set_component(entity_id, comp).map_err(|err| {
+                    CommandError::ComponentInsertFailed {
+                        id: entity_id,
+                        ty: std::any::type_name::<T>(),
+                        err,
+                    }
+                })?;
             }
             ComponentCommand::Delete => {
                 if let Err(err) = world.remove_component::<T>(entity_id) {
@@ -420,7 +465,13 @@ impl<T: Component> ComponentCommand<T> {
                         WorldError::ComponentNotFound => { /*ignore*/ }
                         WorldError::InsertInvalidId(_)
                         | WorldError::OutOfCapacity
-                        | WorldError::EntityNotFound => return Err(err),
+                        | WorldError::EntityNotFound => {
+                            return Err(CommandError::ComponentRemoveFailed {
+                                id: entity_id,
+                                ty: std::any::type_name::<T>(),
+                                err,
+                            });
+                        }
                     }
                 }
             }
@@ -431,7 +482,7 @@ impl<T: Component> ComponentCommand<T> {
 
 pub(crate) struct ErasedResourceCommand {
     inner: *mut (),
-    apply: fn(NonNull<()>, &mut World) -> Result<(), WorldError>,
+    apply: fn(NonNull<()>, &mut World) -> Result<(), CommandError>,
     drop: fn(NonNull<()>),
 }
 
@@ -464,7 +515,7 @@ impl ErasedResourceCommand {
         }
     }
 
-    pub fn apply(mut self, world: &mut World) -> Result<(), WorldError> {
+    pub fn apply(mut self, world: &mut World) -> Result<(), CommandError> {
         // self.inner will be dropped twice unless we clear it now
         let ptr = self.inner;
         self.inner = std::ptr::null_mut();
@@ -478,7 +529,7 @@ pub(crate) enum ResourceCommand<T> {
 }
 
 impl<T: Component> ResourceCommand<T> {
-    fn apply(self, world: &mut World) -> Result<(), WorldError> {
+    fn apply(self, world: &mut World) -> Result<(), CommandError> {
         match self {
             ResourceCommand::Insert(comp) => {
                 world.insert_resource::<T>(comp);
@@ -496,7 +547,7 @@ pub(crate) enum WorldCommands {
 }
 
 impl WorldCommands {
-    pub fn apply(self, world: &mut World) -> Result<(), WorldError> {
+    pub fn apply(self, world: &mut World) -> Result<(), CommandError> {
         match self {
             WorldCommands::Reserve { additional } => world.reserve_entities(additional),
         }

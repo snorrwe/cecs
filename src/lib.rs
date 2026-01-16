@@ -36,7 +36,10 @@ mod scheduler;
 
 use world_access::WorldLock;
 
-use crate::{commands::sort_commands, systems::ShouldRunFlags};
+use crate::{
+    commands::{CommandError, sort_commands},
+    systems::ShouldRunFlags,
+};
 
 #[cfg(test)]
 mod world_tests;
@@ -219,7 +222,7 @@ impl World {
         self.entity_ids().is_valid(id)
     }
 
-    pub fn apply_commands(&mut self) -> WorldResult<()> {
+    pub fn apply_commands(&mut self) -> Result<(), CommandError> {
         #[cfg(feature = "tracing")]
         tracing::trace!("Running commands");
 
@@ -575,7 +578,7 @@ impl World {
     /// Run a system and apply any commands before returning
     ///
     /// Returns the commands result
-    pub fn run_system<'a, S, P, R>(&mut self, system: S) -> WorldResult<R>
+    pub fn run_system<'a, S, P, R>(&mut self, system: S) -> Result<R, CommandError>
     where
         S: systems::IntoOnceSystem<'a, P, R>,
     {
@@ -900,7 +903,7 @@ unsafe fn run_system<'a, R>(world: &'a World, sys: &'a systems::ErasedSystem<'_,
 
 pub struct RunStageReturn<'a> {
     pub stage: SystemStage<'a>,
-    pub result: WorldResult<()>,
+    pub result: Result<(), CommandError>,
 }
 
 impl<'a> RunStageReturn<'a> {
