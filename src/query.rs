@@ -421,6 +421,15 @@ where
         self.iter().next().unwrap()
     }
 
+    /// fetch the first row of the query
+    /// panic if no row was found
+    pub fn one_mut<'b>(&'b mut self) -> <T as QueryFragment>::ItemMut<'a>
+    where
+        'a: 'b,
+    {
+        self.single_mut().unwrap()
+    }
+
     #[cfg(feature = "parallel")]
     pub fn par_for_each<'b>(&'b self, f: impl Fn(<T as QueryFragment>::Item<'a>) + Sync + 'b)
     where
