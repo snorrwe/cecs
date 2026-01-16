@@ -22,8 +22,6 @@ pub enum CommandError {
         dst: EntityId,
         err: WorldError,
     },
-    #[error("Entity Not Found: {action:?}")]
-    EntityNotFound { action: EntityAction },
     #[error("Failed to insert component (id={id}) (ty={ty}): {err:?}")]
     ComponentInsertFailed {
         id: EntityId,
@@ -328,11 +326,6 @@ impl EntityCommands {
                     .map_err(|err| CommandError::MergeFail { src, dst, err });
             }
         };
-        if !world.is_id_valid(id) {
-            return Err(CommandError::EntityNotFound {
-                action: self.action,
-            });
-        }
         for cmd in self.payload {
             cmd.apply(id, world)?;
         }
