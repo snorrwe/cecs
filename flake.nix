@@ -44,6 +44,9 @@
             git-cliff
 
             lldb
+
+            # benchmarks
+            gnuplot
           ];
         };
       }
