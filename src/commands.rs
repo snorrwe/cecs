@@ -189,7 +189,7 @@ fn action_ty(c: &EntityAction) -> (u32, u32) {
     match c {
         EntityAction::Init(id) => (id.index(), 0),
         EntityAction::InsertId(id) => (id.index(), 0),
-        EntityAction::Insert => (!0, 0),
+        EntityAction::Insert => (0, 0),
         EntityAction::Fetch(id) => (id.index(), 1),
         EntityAction::Merge { src, .. } => (src.index(), 1),
         EntityAction::Delete(id) => (id.index(), 2),
@@ -405,6 +405,14 @@ impl EntityCommands {
         self
     }
 
+    /// Like insert but ignores failure
+    pub fn try_insert<T: Component>(&mut self, component: T) -> &mut Self {
+        self.payload.push(ErasedComponentCommand::from_component(
+            ComponentCommand::TryInsert(component),
+        ));
+        self
+    }
+
     pub fn insert_bundle<T: Bundle>(&mut self, bundle: T) -> &mut Self {
         self.payload
             .push(ErasedComponentCommand::from_bundle(BundleCommand::Insert(
@@ -503,6 +511,7 @@ impl<T: Bundle> BundleCommand<T> {
 
 pub(crate) enum ComponentCommand<T> {
     Insert(T),
+    TryInsert(T),
     Delete,
 }
 
@@ -517,6 +526,9 @@ impl<T: Component> ComponentCommand<T> {
                         err,
                     }
                 })?;
+            }
+            ComponentCommand::TryInsert(comp) => {
+                let _ = world.set_component(entity_id, comp);
             }
             ComponentCommand::Delete => {
                 if let Err(err) = world.remove_component::<T>(entity_id) {
