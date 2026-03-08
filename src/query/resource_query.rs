@@ -1,6 +1,7 @@
 use std::{
     any::TypeId,
     collections::HashSet,
+    fmt::Debug,
     marker::PhantomData,
     ops::{Deref, DerefMut},
 };
@@ -10,6 +11,15 @@ use super::WorldQuery;
 pub struct Res<'a, T> {
     inner: &'a T,
     _m: PhantomData<T>,
+}
+
+impl<'a, T> Debug for Res<'a, T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Res").field("inner", &self.inner).finish()
+    }
 }
 
 unsafe impl<'a, T: 'static> WorldQuery<'a> for Res<'a, T> {
@@ -76,7 +86,16 @@ pub struct ResMut<'a, T> {
     inner: &'a mut T,
     _m: PhantomData<fn() -> &'a mut T>,
 }
-
+impl<'a, T> Debug for ResMut<'a, T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ResMut")
+            .field("inner", &self.inner)
+            .finish()
+    }
+}
 impl<'a, T: 'static> ResMut<'a, T> {
     pub fn new(world: &'a crate::World) -> Self {
         let inner = match unsafe { world.resources.fetch_mut() } {
