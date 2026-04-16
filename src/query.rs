@@ -14,7 +14,13 @@ use crate::{
     table::{ArchetypeHash, EntityTable},
 };
 use filters::Filter;
-use std::{any::TypeId, collections::HashSet, marker::PhantomData, ops::RangeBounds, slice};
+use std::{
+    any::TypeId,
+    collections::{BTreeSet, HashSet},
+    marker::PhantomData,
+    ops::RangeBounds,
+    slice,
+};
 
 /// # SAFETY
 ///
@@ -636,6 +642,100 @@ impl<T: Component> QueryFragment for Has<T> {
         let range = slice::range(range, ..len);
         let len = range.len();
         std::iter::repeat(archetype.contains_column::<T>()).take(len)
+    }
+
+    fn iter_range_mut(
+        archetype: &EntityTable,
+        range: impl RangeBounds<usize> + Clone,
+    ) -> Self::ItMut<'_> {
+        Self::iter_range(archetype, range)
+    }
+}
+
+/// Query the set of component types for entities.
+///
+/// Note that it requires constructing a new BTreeSet for each archetype.
+/// Individual fetches can be quite expensive. Prefer querying the archetypes directly.
+///
+/// ```
+/// use cecs::prelude::*;
+/// use std::any::TypeId;
+///
+/// let mut world = World::new(2);
+/// let id = world.insert_entity();
+/// world.set_bundle(id, (1i32, 2u64, "3"));
+///
+/// world.run_view_system(|q: Query<(ComponentSet, EntityId)>| {
+///   for (set, i) in q.iter() {
+///       assert_eq!(set.len(), 4);
+///       assert_eq!(i, id);
+///       assert!(set.contains(&TypeId::of::<()>()));
+///       assert!(set.contains(&TypeId::of::<i32>()));
+///       assert!(set.contains(&TypeId::of::<u64>()));
+///       assert!(set.contains(&TypeId::of::<&'static str>()));
+///       return;
+///   }
+///   unreachable!("Expected exactly 1 item");
+/// });
+///
+/// ```
+///
+///
+pub struct ComponentSet;
+impl QueryFragment for ComponentSet {
+    type Item<'a> = std::rc::Rc<BTreeSet<TypeId>>;
+    type ItemUnsafe<'a> = Self::Item<'a>;
+    type ItUnsafe<'a> = Self::It<'a>;
+    type It<'a> = std::iter::Take<std::iter::Repeat<Self::Item<'a>>>;
+    type ItemMut<'a> = Self::Item<'a>;
+    type ItMut<'a> = Self::It<'a>;
+
+    unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_> {
+        Self::iter(archetype)
+    }
+
+    unsafe fn fetch_unsafe(
+        archetype: &EntityTable,
+        index: RowIndex,
+    ) -> Option<Self::ItemUnsafe<'_>> {
+        Self::fetch(archetype, index)
+    }
+
+    fn iter(archetype: &EntityTable) -> Self::It<'_> {
+        Self::iter_range(archetype, ..)
+    }
+
+    fn iter_mut(archetype: &EntityTable) -> Self::ItMut<'_> {
+        Self::iter(archetype)
+    }
+
+    fn fetch(archetype: &EntityTable, _index: RowIndex) -> Option<Self::Item<'_>> {
+        let set = archetype.components().map(|(id, _)| id).collect();
+        Some(std::rc::Rc::new(set))
+    }
+
+    fn fetch_mut(archetype: &EntityTable, index: RowIndex) -> Option<Self::ItemMut<'_>> {
+        Self::fetch(archetype, index)
+    }
+
+    fn types_mut(_set: &mut HashSet<TypeId>) {}
+
+    fn types_const(_set: &mut HashSet<TypeId>) {}
+
+    fn contains(_archetype: &EntityTable) -> bool {
+        true
+    }
+
+    fn read_only() -> bool {
+        true
+    }
+
+    fn iter_range(archetype: &EntityTable, range: impl RangeBounds<usize> + Clone) -> Self::It<'_> {
+        let len = archetype.entities.len();
+        let range = slice::range(range, ..len);
+        let len = range.len();
+        let set = archetype.components().map(|(id, _)| id).collect();
+        std::iter::repeat(std::rc::Rc::new(set)).take(len)
     }
 
     fn iter_range_mut(
