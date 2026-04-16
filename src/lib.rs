@@ -64,6 +64,11 @@ pub struct World {
 
     #[cfg(feature = "parallel")]
     pub job_system: job_system::JobPool,
+
+    /// List of entities deleted in the last tick
+    /// [tick] clears the old values
+    deleted: Vec<EntityId>,
+    newly_deleted: Vec<EntityId>,
 }
 
 unsafe impl Send for World {}
@@ -110,6 +115,8 @@ impl Clone for World {
             schedule,
             #[cfg(feature = "parallel")]
             job_system,
+            deleted: Default::default(),
+            newly_deleted: Default::default(),
         }
     }
 }
@@ -188,6 +195,8 @@ impl World {
             schedule: Default::default(),
             #[cfg(feature = "parallel")]
             job_system: job_system.clone(),
+            deleted: Default::default(),
+            newly_deleted: Default::default(),
         };
         let void_store = Box::pin(EntityTable::empty());
         result.archetypes.insert(VOID_TY, void_store);
@@ -317,6 +326,7 @@ impl World {
             }
             self.entity_ids.get_mut().free(id);
         }
+        self.newly_deleted.push(id);
         Ok(())
     }
 
@@ -611,6 +621,7 @@ impl World {
     pub fn tick(&mut self) {
         #[cfg(feature = "parallel")]
         debug_assert_eq!(self.system_stages.len(), self.schedule.len());
+        self.update_deleted();
         for i in 0..self.system_stages.len() {
             self.execute_stage(i);
             // apply commands after each stage
@@ -886,6 +897,20 @@ impl World {
     /// Remove empty archetypes
     pub fn vacuum(&mut self) {
         self.archetypes_staging.clear();
+    }
+
+    pub fn clear_deleted(&mut self) {
+        self.deleted.clear();
+    }
+
+    pub fn iter_deleted(&self) -> impl Iterator<Item = EntityId> {
+        self.deleted.iter().copied()
+    }
+
+    /// Apply pending deleted list additions
+    pub fn update_deleted(&mut self) {
+        self.deleted.clear();
+        std::mem::swap(&mut self.deleted, &mut self.newly_deleted);
     }
 }
 

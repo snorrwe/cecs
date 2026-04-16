@@ -1,5 +1,6 @@
 // FIXME: yeet the bloody Box<dyn Iterator> iterators please
 //
+pub mod deleted_query;
 pub mod filters;
 pub mod resource_query;
 
