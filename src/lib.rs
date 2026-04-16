@@ -338,7 +338,7 @@ impl World {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, bundle)))]
-    fn set_bundle<T: Bundle>(&mut self, entity_id: EntityId, bundle: T) -> WorldResult<()> {
+    pub fn set_bundle<T: Bundle>(&mut self, entity_id: EntityId, bundle: T) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
         tracing::trace!(
             entity_id = tracing::field::display(entity_id),
@@ -402,7 +402,7 @@ impl World {
         Ok(())
     }
 
-    fn set_component<T: Component>(
+    pub fn set_component<T: Component>(
         &mut self,
         entity_id: EntityId,
         component: T,
@@ -422,7 +422,7 @@ impl World {
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
-    fn remove_component<T: Component>(&mut self, entity_id: EntityId) -> WorldResult<()> {
+    pub fn remove_component<T: Component>(&mut self, entity_id: EntityId) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
         tracing::trace!(
             entity_id = tracing::field::display(entity_id),
