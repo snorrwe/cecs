@@ -47,20 +47,20 @@ mod world_tests;
 type UnsafeBuffer<T> = std::cell::UnsafeCell<Vec<T>>;
 
 pub struct World {
-    pub(crate) this_lock: WorldLock,
-    pub(crate) entity_ids: UnsafeCell<EntityIndex>,
-    pub(crate) archetypes: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
+    this_lock: WorldLock,
+    entity_ids: UnsafeCell<EntityIndex>,
+    archetypes: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
     // empty archetypes reserved for buffers
     // enables us to reuse temporary archetypes without affecting query performance
     archetypes_staging: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
-    pub(crate) resources: ResourceStorage,
-    pub(crate) commands: Vec<UnsafeBuffer<CommandPayload>>,
-    pub(crate) commands_buffer: Vec<CommandPayload>,
-    pub(crate) system_stages: Vec<SystemStage<'static>>,
+    resources: ResourceStorage,
+    commands: Vec<UnsafeBuffer<CommandPayload>>,
+    commands_buffer: Vec<CommandPayload>,
+    system_stages: Vec<SystemStage<'static>>,
 
     /// 1 schedule for each system_stage
     #[cfg(feature = "parallel")]
-    pub(crate) schedule: Vec<scheduler::Schedule>,
+    schedule: Vec<scheduler::Schedule>,
 
     #[cfg(feature = "parallel")]
     pub job_system: job_system::JobPool,
