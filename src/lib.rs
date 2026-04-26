@@ -659,7 +659,7 @@ impl World {
                 let graph = unsafe {schedule.jobs(systems, should_run_flags, self)};
 
                 #[cfg(feature = "tracing")]
-                tracing::debug!(graph = tracing::field::debug(&graph), "Running job graph");
+                tracing::trace!(graph = ?graph, "Running job graph");
 
                 self.job_system.run_graph(&graph);
             } else {
