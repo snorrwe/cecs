@@ -168,8 +168,8 @@ impl JobPool {
             with_thread_index(|id| {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(
-                    id = id,
-                    data = tracing::field::debug(job.data),
+                    thread_index = %id,
+                    data = ?job.data,
                     "Enqueueing job"
                 );
                 if job.ready() {
