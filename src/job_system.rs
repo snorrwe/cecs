@@ -554,7 +554,7 @@ impl std::future::Future for JobHandle {
 
 impl JobHandle {
     pub fn done(&self) -> bool {
-        let left = self.tasks_left.load(Ordering::Relaxed);
+        let left = self.tasks_left.load(Ordering::Acquire);
         debug_assert!(left >= 0, "tasks_left should be non-negative {left}");
         left <= 0
     }
@@ -602,7 +602,7 @@ impl Job {
             if let ExecutionState::Done = res {
                 self.data = std::ptr::null();
                 for dep in self.children.iter() {
-                    dep.fetch_sub(1, Ordering::Relaxed);
+                    dep.fetch_sub(1, Ordering::Release);
                 }
                 self.tasks_left.fetch_sub(1, Ordering::Release);
             }
@@ -617,7 +617,7 @@ impl Job {
     }
 
     pub fn ready(&self) -> bool {
-        let left = self.tasks_left.load(Ordering::Relaxed);
+        let left = self.tasks_left.load(Ordering::Acquire);
         debug_assert!(left >= 0);
         left == 1 && !self.data.is_null()
     }
