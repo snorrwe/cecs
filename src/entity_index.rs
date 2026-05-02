@@ -189,6 +189,8 @@ impl EntityIndex {
                     *free_list = row;
                     self.init_allocated_id(needle);
                     self.entries_mut()[needle as usize].generation = id.generation();
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!(%id, "Inserted");
                     return Ok(());
                 }
                 free_list = &mut self.entries_mut()[*free_list as usize].row_index;
@@ -227,7 +229,10 @@ impl EntityIndex {
             entry.arch = std::ptr::null_mut();
             entry.row_index = SENTINEL;
         }
-        EntityId::new(index as u32, entry.generation)
+        let id = EntityId::new(index as u32, entry.generation);
+        #[cfg(feature = "tracing")]
+        tracing::trace!(%id, "Initialized id");
+        id
     }
 
     pub fn reserve(&mut self, additional: u32) {
@@ -241,6 +246,8 @@ impl EntityIndex {
     ///
     /// Caller must ensure that the id is valid
     pub(crate) unsafe fn update(&mut self, id: EntityId, arch: *mut EntityTable, row: RowIndex) {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(%id, ?arch, %row, "Updating");
         unsafe {
             let index = id.index();
             debug_assert!(index < self.cap);
@@ -255,6 +262,8 @@ impl EntityIndex {
     ///
     /// Caller must ensure that the id is valid
     pub(crate) unsafe fn update_row_index(&mut self, id: EntityId, row: RowIndex) {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(%id, %row, "Updating row index");
         unsafe {
             let index = id.index();
             debug_assert!(index < self.cap);
@@ -280,6 +289,8 @@ impl EntityIndex {
     }
 
     pub fn free(&mut self, id: EntityId) {
+        #[cfg(feature = "tracing")]
+        tracing::trace!(%id, "Freeing");
         self.count -= 1;
         let index = id.index();
         let entry: &mut Entry;
