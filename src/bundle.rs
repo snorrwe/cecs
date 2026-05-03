@@ -20,7 +20,6 @@ macro_rules! impl_tuple {
                 ty
             }
 
-
             fn can_insert(&self, archetype: &EntityTable) -> bool {
                 $(archetype.contains_column::<$ty>())&&*
             }
