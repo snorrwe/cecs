@@ -304,9 +304,10 @@ impl World {
         };
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
     pub fn delete_entity(&mut self, id: EntityId) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(id = tracing::field::display(id), "Delete entity");
+        tracing::trace!("Delete entity");
         if !self.entity_ids().is_valid(id) {
             return Err(WorldError::EntityNotFound);
         }
@@ -337,7 +338,7 @@ impl World {
             .map(|t| t.as_mut().get_mut().into())
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, bundle)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, bundle), fields(ty = std::any::type_name::<T>())))]
     pub fn set_bundle<T: Bundle>(&mut self, entity_id: EntityId, bundle: T) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
         tracing::trace!(
@@ -421,14 +422,10 @@ impl World {
         unsafe { arch.as_mut().get_component_mut(idx) }
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(ty = std::any::type_name::<T>())))]
     pub fn remove_component<T: Component>(&mut self, entity_id: EntityId) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            entity_id = tracing::field::display(entity_id),
-            ty = std::any::type_name::<T>(),
-            "Remove component"
-        );
+        tracing::trace!("Remove component");
 
         let (mut archetype, mut index) = self
             .entity_ids()
