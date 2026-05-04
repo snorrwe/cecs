@@ -635,6 +635,7 @@ impl World {
         self.tick += 1;
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick)))]
     fn execute_stage(&mut self, i: usize) {
         self.resize_commands(self.system_stages[i].systems.len());
         let stage = &self.system_stages[i];
@@ -925,6 +926,7 @@ impl World {
 // access to the internals
 //
 // The system's queries must be disjoint to any other concurrently running system's
+#[cfg_attr(feature = "tracing", tracing::instrument(skip(world, sys), fields(tick=world.tick)))]
 unsafe fn run_system<'a, R>(world: &'a World, sys: &'a systems::ErasedSystem<'_, R>) -> R {
     let index = sys.system_idx;
     let execute: &systems::InnerSystem<'_, R> = { unsafe { transmute(sys.execute.as_ref()) } };
