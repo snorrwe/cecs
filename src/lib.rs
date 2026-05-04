@@ -47,6 +47,7 @@ mod world_tests;
 type UnsafeBuffer<T> = std::cell::UnsafeCell<Vec<T>>;
 
 pub struct World {
+    tick: u64,
     this_lock: WorldLock,
     entity_ids: UnsafeCell<EntityIndex>,
     archetypes: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
@@ -103,6 +104,7 @@ impl Clone for World {
         let job_system = self.job_system.clone();
 
         Self {
+            tick: 0,
             this_lock: WorldLock::new(),
             entity_ids: UnsafeCell::new(entity_ids),
             archetypes,
@@ -183,6 +185,7 @@ impl World {
         #[cfg(feature = "parallel")]
         let job_system: job_system::JobPool = job_system::JOB_POOL.clone();
         let mut result = Self {
+            tick: 0,
             this_lock: WorldLock::new(),
             entity_ids: UnsafeCell::new(entity_ids),
             archetypes: BTreeMap::new(),
@@ -261,6 +264,8 @@ impl World {
 
         for id in promotion_queue {
             let t = self.archetypes_staging.remove(&id).unwrap();
+            #[cfg(feature = "tracing")]
+            tracing::trace!(?t, "Promoting archetype");
             self.archetypes.insert(id, t);
         }
 
@@ -272,6 +277,8 @@ impl World {
 
         for id in demotion_queue {
             let t = self.archetypes.remove(&id).unwrap();
+            #[cfg(feature = "tracing")]
+            tracing::trace!(?t, "Demoting archetype");
             self.archetypes_staging.insert(id, t);
         }
 
@@ -615,6 +622,7 @@ impl World {
         (sys)(self, 0)
     }
 
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick)))]
     pub fn tick(&mut self) {
         #[cfg(feature = "parallel")]
         debug_assert_eq!(self.system_stages.len(), self.schedule.len());
@@ -624,6 +632,7 @@ impl World {
             // apply commands after each stage
             self.apply_commands().unwrap();
         }
+        self.tick += 1;
     }
 
     fn execute_stage(&mut self, i: usize) {
