@@ -635,15 +635,19 @@ impl World {
         self.tick += 1;
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick)))]
+    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick, stage_name)))]
     fn execute_stage(&mut self, i: usize) {
         self.resize_commands(self.system_stages[i].systems.len());
         let stage = &self.system_stages[i];
 
         #[cfg(feature = "tracing")]
         let stage_name = stage.name.clone();
+
         #[cfg(feature = "tracing")]
-        tracing::trace!(stage_name = stage_name.as_str(), "Run stage");
+        {
+            tracing::Span::current().record("stage_name", &stage_name);
+            tracing::trace!(stage_name = stage_name.as_str(), "Run stage");
+        }
 
         let mut should_run_flags: ShouldRunFlags = !0;
         for (i, condition) in stage.should_run.iter() {
