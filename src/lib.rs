@@ -202,6 +202,14 @@ impl World {
             newly_deleted: Default::default(),
         };
         let void_store = Box::pin(EntityTable::empty());
+
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            hash = void_store.ty(),
+            archetype = ?std::ptr::from_ref(void_store.as_ref().get_ref()),
+            "Inserted void archetype"
+        );
+
         result.archetypes.insert(VOID_TY, void_store);
         #[cfg(feature = "parallel")]
         result.insert_resource(job_system);
@@ -483,10 +491,17 @@ impl World {
         let mut new_arch = Box::pin(new_arch);
         let (index, moved_entity) = archetype.move_entity(&mut new_arch, row_index);
         debug_assert_eq!(index, 0);
-        let res = unsafe { NonNull::new_unchecked(new_arch.as_mut().get_mut() as *mut _) };
+        let res =
+            unsafe { NonNull::new_unchecked(std::ptr::from_mut(new_arch.as_mut().get_mut())) };
         debug_assert!(
             !self.archetypes.contains_key(&new_arch.ty()),
             "Musn't insert the same archetype twice"
+        );
+        #[cfg(feature = "tracing")]
+        tracing::debug!(
+            hash = new_arch.ty(),
+            archetype = ?res,
+            "Inserted new archetype"
         );
         self.archetypes.insert(new_arch.ty(), new_arch);
 
@@ -831,10 +846,12 @@ impl World {
 
         // dst_arch is disjoint from both lhs and rhs
         //
-        let dst_arch = self
-            .archetypes
-            .entry(dst_hash)
-            .or_insert_with(|| Box::pin(rhs_archetype.merged(lhs_archetype)));
+        let dst_arch = self.archetypes.entry(dst_hash).or_insert_with(|| {
+            let a = Box::pin(rhs_archetype.merged(lhs_archetype));
+            #[cfg(feature = "tracing")]
+            tracing::debug!(hash = a.ty(), archetype = ?std::ptr::from_ref(a.as_ref().get_ref()), "Inserted new merged archetype");
+            a
+        });
         // move rhs components to the dst
         //
         let (dst_index, moved) = rhs_archetype.move_entity(dst_arch, rhs_index);
