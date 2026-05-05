@@ -335,7 +335,7 @@ impl World {
             if let Some(updated_entity) = archetype.as_mut().remove(index) {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(?updated_entity, index, "Update moved entity index");
-                debug_assert_ne!(id, updated_entity);
+                assert_ne!(id, updated_entity);
                 self.entity_ids
                     .get_mut()
                     .update_row_index(updated_entity, index);
@@ -399,7 +399,7 @@ impl World {
                     tracing::trace!(new_hash, "Inserting new archetype");
 
                     let new_arch = T::extend(archetype);
-                    debug_assert_eq!(new_hash, new_arch.ty());
+                    assert_eq!(new_hash, new_arch.ty());
                     let mut res = self.insert_archetype(archetype, index, new_arch);
 
                     archetype = unsafe { res.as_mut() };
@@ -458,7 +458,7 @@ impl World {
             if let Some(updated_entity) = updated_entity {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(?updated_entity, index, "Update moved entity index");
-                debug_assert_ne!(updated_entity, entity_id);
+                assert_ne!(updated_entity, entity_id);
                 unsafe {
                     self.entity_ids
                         .get_mut()
@@ -490,10 +490,10 @@ impl World {
     ) -> NonNull<EntityTable> {
         let mut new_arch = Box::pin(new_arch);
         let (index, moved_entity) = archetype.move_entity(&mut new_arch, row_index);
-        debug_assert_eq!(index, 0);
+        assert_eq!(index, 0);
         let res =
             unsafe { NonNull::new_unchecked(std::ptr::from_mut(new_arch.as_mut().get_mut())) };
-        debug_assert!(
+        assert!(
             !self.archetypes.contains_key(&new_arch.ty())
                 && !self.archetypes_staging.contains_key(&new_arch.ty()),
             "Musn't insert the same archetype twice"
@@ -504,7 +504,8 @@ impl World {
             archetype = ?res,
             "Inserted new archetype"
         );
-        self.archetypes.insert(new_arch.ty(), new_arch);
+        let _old = self.archetypes.insert(new_arch.ty(), new_arch);
+        assert!(_old.is_none());
 
         if let Some(updated_entity) = moved_entity {
             #[cfg(feature = "tracing")]
@@ -641,7 +642,7 @@ impl World {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick)))]
     pub fn tick(&mut self) {
         #[cfg(feature = "parallel")]
-        debug_assert_eq!(self.system_stages.len(), self.schedule.len());
+        assert_eq!(self.system_stages.len(), self.schedule.len());
         self.update_deleted();
         for i in 0..self.system_stages.len() {
             self.execute_stage(i);
