@@ -1056,3 +1056,49 @@ fn tuple_queries() {
 
     assert_eq!(i, 1);
 }
+
+/// Regression test:
+/// remove_component had a bug where if the entity's new archetype was in staging, then it would
+/// create a new archetype, resuling in use-after-free bugs
+///
+/// To reproduce:
+/// - have an empty archetype in staging
+/// - move entities into the empty archetype via set_component
+/// - in the same commands set, remove a component from an entity so it's put in this archetype
+#[test]
+fn test_remove_doesnt_create_duplicate_archetype() {
+    let mut w = World::new(8);
+
+    let e1 = w.insert_entity();
+    let e2 = w.insert_entity();
+
+    // create archetype with i32 component
+    w.set_component(e1, 1i32).unwrap();
+    w.set_bundle(e2, (1i32, 2i64)).unwrap();
+
+    // i32 archetype is empty after this
+    w.run_system(|mut cmd: Commands| {
+        cmd.entity(e1).remove::<i32>();
+    })
+    .unwrap();
+
+    w.archetypes_staging
+        .iter()
+        .find(|(_, v)| v.contains_column::<i32>() && v.components.len() == 2);
+
+    // move e1 into this archetype by adding component
+    // move e2 into this archetype by removing component
+    // order matters!
+    w.run_system(|mut cmd: Commands| {
+        cmd.entity(e1).insert(2i32);
+        // this would trigger an assertion before the fix
+        cmd.entity(e2).remove::<i64>();
+    })
+    .unwrap();
+
+    let i: &i32 = w.get_component(e1).unwrap();
+    assert_eq!(i, &2);
+
+    let i: &i32 = w.get_component(e2).unwrap();
+    assert_eq!(i, &1);
+}

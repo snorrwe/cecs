@@ -361,11 +361,7 @@ impl World {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, bundle), fields(ty = std::any::type_name::<T>())))]
     pub fn set_bundle<T: Bundle>(&mut self, entity_id: EntityId, bundle: T) -> WorldResult<()> {
         #[cfg(feature = "tracing")]
-        tracing::trace!(
-            entity_id = tracing::field::display(entity_id),
-            ty = std::any::type_name::<T>(),
-            "Set bundle"
-        );
+        tracing::trace!(%entity_id, ty = std::any::type_name::<T>(), "Set bundle");
 
         let (mut archetype, mut index) = self
             .entity_ids()
