@@ -494,7 +494,8 @@ impl World {
         let res =
             unsafe { NonNull::new_unchecked(std::ptr::from_mut(new_arch.as_mut().get_mut())) };
         debug_assert!(
-            !self.archetypes.contains_key(&new_arch.ty()),
+            !self.archetypes.contains_key(&new_arch.ty())
+                && !self.archetypes_staging.contains_key(&new_arch.ty()),
             "Musn't insert the same archetype twice"
         );
         #[cfg(feature = "tracing")]
