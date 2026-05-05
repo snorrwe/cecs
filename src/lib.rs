@@ -49,7 +49,7 @@ type UnsafeBuffer<T> = std::cell::UnsafeCell<Vec<T>>;
 pub struct World {
     tick: u64,
     this_lock: WorldLock,
-    entity_ids: UnsafeCell<EntityIndex>,
+    entity_index: UnsafeCell<EntityIndex>,
     archetypes: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
     // empty archetypes reserved for buffers
     // enables us to reuse temporary archetypes without affecting query performance
@@ -106,7 +106,7 @@ impl Clone for World {
         Self {
             tick: 0,
             this_lock: WorldLock::new(),
-            entity_ids: UnsafeCell::new(entity_ids),
+            entity_index: UnsafeCell::new(entity_ids),
             archetypes,
             archetypes_staging: Default::default(),
             commands,
@@ -187,7 +187,7 @@ impl World {
         let mut result = Self {
             tick: 0,
             this_lock: WorldLock::new(),
-            entity_ids: UnsafeCell::new(entity_ids),
+            entity_index: UnsafeCell::new(entity_ids),
             archetypes: BTreeMap::new(),
             archetypes_staging: Default::default(),
             resources: ResourceStorage::new(),
@@ -217,7 +217,7 @@ impl World {
     }
 
     pub fn reserve_entities(&mut self, additional: u32) {
-        self.entity_ids.get_mut().reserve(additional);
+        self.entity_index.get_mut().reserve(additional);
     }
 
     pub fn entity_capacity(&self) -> usize {
@@ -296,7 +296,7 @@ impl World {
     }
 
     pub fn insert_entity(&mut self) -> EntityId {
-        let id = self.entity_ids.get_mut().allocate_with_resize();
+        let id = self.entity_index.get_mut().allocate_with_resize();
         unsafe {
             self.init_id(id);
         }
@@ -313,7 +313,7 @@ impl World {
         let index = void_store.as_mut().insert_entity(id);
         void_store.as_mut().set_component(index, ());
         unsafe {
-            self.entity_ids
+            self.entity_index
                 .get_mut()
                 .update(id, void_store.as_mut().get_mut() as *mut _, index)
         };
@@ -336,11 +336,11 @@ impl World {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(?updated_entity, index, "Update moved entity index");
                 assert_ne!(id, updated_entity);
-                self.entity_ids
+                self.entity_index
                     .get_mut()
                     .update_row_index(updated_entity, index);
             }
-            self.entity_ids.get_mut().free(id);
+            self.entity_index.get_mut().free(id);
         }
         self.newly_deleted.push(id);
         Ok(())
@@ -391,7 +391,7 @@ impl World {
                         if let Some(updated_entity) = updated_entity {
                             #[cfg(feature = "tracing")]
                             tracing::trace!(?updated_entity, index, "Update moved entity index");
-                            self.entity_ids
+                            self.entity_index
                                 .get_mut()
                                 .update_row_index(updated_entity, index);
                         }
@@ -416,7 +416,7 @@ impl World {
         unsafe {
             #[cfg(feature = "tracing")]
             tracing::trace!(index, ?entity_id, "Update entity index");
-            self.entity_ids
+            self.entity_index
                 .get_mut()
                 .update(entity_id, archetype, index);
         }
@@ -464,7 +464,7 @@ impl World {
                     #[cfg(feature = "tracing")]
                     tracing::trace!(?updated_entity, index, "Update moved entity index");
                     assert_ne!(updated_entity, entity_id);
-                    self.entity_ids
+                    self.entity_index
                         .get_mut()
                         .update_row_index(updated_entity, index);
                 }
@@ -481,7 +481,9 @@ impl World {
             }
         }
         unsafe {
-            self.entity_ids.get_mut().update(entity_id, arch_ptr, index);
+            self.entity_index
+                .get_mut()
+                .update(entity_id, arch_ptr, index);
         }
         Ok(())
     }
@@ -516,7 +518,7 @@ impl World {
             #[cfg(feature = "tracing")]
             tracing::trace!(?updated_entity, index, "Update moved entity index");
             unsafe {
-                self.entity_ids
+                self.entity_index
                     .get_mut()
                     .update_row_index(updated_entity, row_index);
             }
@@ -777,7 +779,7 @@ impl World {
     }
 
     pub(crate) fn entity_ids(&self) -> &EntityIndex {
-        unsafe { &*self.entity_ids.get() }
+        unsafe { &*self.entity_index.get() }
     }
 
     /// Move all components from `lhs` to `rhs`, overrinding components `rhs` already has. Then
@@ -802,7 +804,7 @@ impl World {
             // if they're the same archetype just swap and remove
             rhs_archetype.swap_components(lhs_index, rhs_index);
             unsafe {
-                let entity_ids = self.entity_ids.get_mut();
+                let entity_ids = self.entity_index.get_mut();
                 entity_ids.update_row_index(lhs, rhs_index);
                 entity_ids.update_row_index(rhs, lhs_index);
             }
@@ -824,10 +826,12 @@ impl World {
             let moved = lhs_archetype.move_entity_into(lhs_index, rhs_archetype, rhs_index);
             if let Some(moved) = moved {
                 unsafe {
-                    self.entity_ids.get_mut().update_row_index(moved, lhs_index);
+                    self.entity_index
+                        .get_mut()
+                        .update_row_index(moved, lhs_index);
                 }
             }
-            self.entity_ids.get_mut().free(lhs);
+            self.entity_index.get_mut().free(lhs);
             return Ok(());
         }
         if dst_hash == lhs_archetype.ty() {
@@ -837,13 +841,15 @@ impl World {
             let moved = rhs_archetype.remove(rhs_index);
             if let Some(moved) = moved {
                 unsafe {
-                    self.entity_ids.get_mut().update_row_index(moved, rhs_index);
+                    self.entity_index
+                        .get_mut()
+                        .update_row_index(moved, rhs_index);
                 }
             }
             // update the entity id in lhs
             lhs_archetype.entities[lhs_index as usize] = rhs;
             // entity id update
-            let entity_ids = self.entity_ids.get_mut();
+            let entity_ids = self.entity_index.get_mut();
             unsafe {
                 entity_ids.update(rhs, lhs_archetype, lhs_index);
             }
@@ -864,7 +870,7 @@ impl World {
         let (dst_index, moved) = rhs_archetype.move_entity(dst_arch, rhs_index);
         if let Some(id) = moved {
             unsafe {
-                self.entity_ids.get_mut().update_row_index(id, rhs_index);
+                self.entity_index.get_mut().update_row_index(id, rhs_index);
             }
         }
         // for lhs columns, if both rhs and lhs have them, then update the dst value
@@ -888,7 +894,7 @@ impl World {
         lhs_archetype.rows -= 1;
         if lhs_archetype.rows > 0 && lhs_index < lhs_archetype.rows {
             unsafe {
-                self.entity_ids
+                self.entity_index
                     .get_mut()
                     .update_row_index(lhs_archetype.entities[lhs_index as usize], lhs_index);
             }
@@ -896,7 +902,7 @@ impl World {
 
         // entity bookkeeping
         unsafe {
-            let entity_ids = self.entity_ids.get_mut();
+            let entity_ids = self.entity_index.get_mut();
             entity_ids.update(rhs, Pin::as_mut(dst_arch).get_mut() as *mut _, dst_index);
             entity_ids.free(lhs);
         }
@@ -908,7 +914,7 @@ impl World {
     /// Insert is an O(n) operation that walks a linked-list.
     /// Prefer [[insert_entity]]
     pub fn insert_id(&mut self, id: EntityId) -> Result<(), entity_index::InsertError> {
-        self.entity_ids.get_mut().insert_id(id)?;
+        self.entity_index.get_mut().insert_id(id)?;
         unsafe {
             self.init_id(id);
         }

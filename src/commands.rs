@@ -343,7 +343,7 @@ impl EntityCommands {
             EntityAction::Insert => unsafe {
                 let world = &*self.world;
                 let _guard = world.this_lock.lock();
-                let index = world.entity_ids.get();
+                let index = world.entity_index.get();
                 let id = (*index).allocate()?;
                 self.action = EntityAction::Init(id);
                 Ok(id)
