@@ -346,6 +346,11 @@ impl World {
         Ok(())
     }
 
+    #[allow(unused)]
+    fn has_archetype(&mut self, key: &TypeHash) -> bool {
+        self.archetypes.contains_key(key) || self.archetypes_staging.contains_key(key)
+    }
+
     fn get_archetype_by_key_mut(&mut self, key: &TypeHash) -> Option<NonNull<EntityTable>> {
         self.archetypes
             .get_mut(key)
@@ -452,27 +457,28 @@ impl World {
             return Err(WorldError::ComponentNotFound);
         }
         let new_ty = archetype.extended_hash::<T>();
-        if self.archetypes.contains_key(&new_ty) {
-            let new_arch = self.archetypes.get_mut(&new_ty).unwrap();
-            let (i, updated_entity) = archetype.move_entity(new_arch, index);
-            if let Some(updated_entity) = updated_entity {
-                #[cfg(feature = "tracing")]
-                tracing::trace!(?updated_entity, index, "Update moved entity index");
-                assert_ne!(updated_entity, entity_id);
-                unsafe {
+        match self.get_archetype_by_key_mut(&new_ty) {
+            Some(mut new_arch) => unsafe {
+                let (i, updated_entity) = archetype.move_entity(new_arch.as_mut(), index);
+                if let Some(updated_entity) = updated_entity {
+                    #[cfg(feature = "tracing")]
+                    tracing::trace!(?updated_entity, index, "Update moved entity index");
+                    assert_ne!(updated_entity, entity_id);
                     self.entity_ids
                         .get_mut()
                         .update_row_index(updated_entity, index);
                 }
-            }
-            index = i;
-            arch_ptr = new_arch.as_mut().get_mut() as *mut _;
-        } else {
-            let arch = archetype.clone_empty();
-            let mut res = self.insert_archetype(archetype, index, arch.reduce_with_column::<T>());
+                index = i;
+                arch_ptr = new_arch.as_ptr();
+            },
+            None => {
+                let arch = archetype.clone_empty();
+                let mut res =
+                    self.insert_archetype(archetype, index, arch.reduce_with_column::<T>());
 
-            arch_ptr = unsafe { res.as_mut() as *mut _ };
-            index = 0;
+                arch_ptr = unsafe { res.as_mut() as *mut _ };
+                index = 0;
+            }
         }
         unsafe {
             self.entity_ids.get_mut().update(entity_id, arch_ptr, index);
@@ -494,8 +500,7 @@ impl World {
         let res =
             unsafe { NonNull::new_unchecked(std::ptr::from_mut(new_arch.as_mut().get_mut())) };
         assert!(
-            !self.archetypes.contains_key(&new_arch.ty())
-                && !self.archetypes_staging.contains_key(&new_arch.ty()),
+            !self.has_archetype(&new_arch.ty()),
             "Musn't insert the same archetype twice"
         );
         #[cfg(feature = "tracing")]
