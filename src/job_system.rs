@@ -783,7 +783,6 @@ where
     unsafe fn execute(instance: *const ()) -> ExecutionState {
         unsafe {
             let mut instance: Box<Self> = Box::from_raw(instance.cast_mut().cast());
-            // let instance: &mut Self = &mut *instance.cast_mut().cast();
             let f = || {
                 futures_lite::future::block_on(futures_lite::future::poll_once(&mut instance.inner))
             };
