@@ -216,6 +216,7 @@ fn cmd_ty(c: &CommandPayload) -> (u32, u32) {
 /// This way deleting and updating in the same tick is handled as one might expect
 ///
 /// TODO: possible improvements:
+/// - sort delete first, skip all following commands for the entity
 /// - perform insert actions
 /// - sort by entity ids
 /// - merge updates
