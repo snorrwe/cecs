@@ -1,4 +1,32 @@
 Changelog
+
+## [0.1.11] - 2026-07-10
+
+### 🚀 Features
+
+- Add Res::cloned Res::copied
+- Add Query::one_mut
+- *(commands)* Add Commands::try_insert
+- Implement Debug for Res and ResMut
+- Add DeletedEntities query to be able to iterate over entities deleted since the last tick
+- Add ComponentSet query
+
+### 🐛 Bug Fixes
+
+- Fix an issue where commands on the same entity would be mixed up
+- *(job_system)* Ensure correct memory ordering in Task::tasks_left
+- Fix duplicate archetype insertions in remove_component.
+
+### 🚜 Refactor
+
+- \[**breaking**\] Mark Schedule::jobs as unsafe
+- Create custom errors for Commands that provide more context on failure
+- Mark component set / remove as public
+
+### ⚙️ Miscellaneous Tasks
+
+- Update dependencies
+
 ## [0.1.10] - 2026-01-08
 
 ### 🐛 Bug Fixes
@@ -19,7 +47,7 @@ Changelog
 
 ### 🚜 Refactor
 
-- [**breaking**] Run all should_run systems, even if one fails the check
+- \[**breaking**\] Run all should_run systems, even if one fails the check
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -29,13 +57,13 @@ Changelog
 
 ### 🚀 Features
 
-- Accept SystemStageBuilder in add_|run_stage
+- Accept SystemStageBuilder in add\_|run_stage
 - Abort if a worker thread panics.
 - Add versioning to WorldPersister
 
 ### 🚜 Refactor
 
-- [**breaking**] Rename persister module to serde
+- \[**breaking**\] Rename persister module to serde
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -66,7 +94,7 @@ Changelog
 ### 🚜 Refactor
 
 - Use Arc instead of Rc inside SystemDescriptors as they are Send
-- [**breaking**] Remove tuple implementation for 16+ length tuples, as tuples may be nested now
+- \[**breaking**\] Remove tuple implementation for 16+ length tuples, as tuples may be nested now
 - Reduce number of 'spins' the job system threads do when the queues are empty
 - Add SystemStageBuilder
 - Use the same formatting for EntityId in debug and display
@@ -125,6 +153,5 @@ Changelog
 
 - Invert if
 - Return commands result in run_system
-- [**breaking**] Remove system pipes
-- [**breaking**] Remove component setters from the public interface
-
+- \[**breaking**\] Remove system pipes
+- \[**breaking**\] Remove component setters from the public interface
