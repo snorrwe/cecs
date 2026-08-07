@@ -315,6 +315,12 @@ impl PartialEq for EntityAction {
 
 impl EntityCommands {
     pub fn can_merge(&self, other: &EntityCommands) -> bool {
+        if let EntityAction::Insert = self.action {
+            return false;
+        }
+        if let EntityAction::Insert = other.action {
+            return false;
+        }
         self.action == other.action
     }
 
