@@ -255,7 +255,10 @@ impl World {
         );
         prepare_commands(&mut commands);
         for cmd in commands.drain(..) {
-            cmd.apply(self)?;
+            if let Err(_err) = cmd.apply(self) {
+                #[cfg(feature = "tracing")]
+                tracing::debug!(error=?_err, "Command failed");
+            }
         }
         self.commands_buffer = commands;
 
