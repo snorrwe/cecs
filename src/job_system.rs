@@ -373,15 +373,12 @@ impl Executor {
     /// # Safety
     ///
     /// Caller must ensure that the queues outlive run_once
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(skip_all, level = "trace", fields(executor_id))
-    )]
     unsafe fn run_once(&mut self) -> Result<(), RunError> {
         unsafe {
             let queues = &*self.queues.0;
             let stealers = &*self.stealer.0;
             let executor_id = self.id;
+
             if let Some(mut job) = queues[executor_id].pop() {
                 #[cfg(feature = "tracing")]
                 tracing::trace!(
