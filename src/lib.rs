@@ -658,7 +658,6 @@ impl World {
         self.tick += 1;
     }
 
-    #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick, stage_name)))]
     fn execute_stage(&mut self, i: usize) {
         self.resize_commands(self.system_stages[i].systems.len());
         let stage = &self.system_stages[i];
@@ -669,7 +668,7 @@ impl World {
         #[cfg(feature = "tracing")]
         {
             tracing::Span::current().record("stage_name", &stage_name);
-            tracing::trace!(stage_name = stage_name.as_str(), "Run stage");
+            tracing::trace!("Run stage");
         }
 
         let mut should_run_flags: ShouldRunFlags = !0;
@@ -678,10 +677,7 @@ impl World {
             if !should_run {
                 should_run_flags ^= 1 << i;
                 #[cfg(feature = "tracing")]
-                tracing::trace!(
-                    stage_name = stage.name.to_string(),
-                    "Stage should_run was false"
-                );
+                tracing::trace!("Stage should_run was false");
             }
         }
 
