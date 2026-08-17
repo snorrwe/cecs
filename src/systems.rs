@@ -339,6 +339,8 @@ impl<'a, R> IntoSystem<'a, (), R> for SystemDescriptor<'a, R> {
 pub struct SystemJob<'a, R> {
     pub world: NonNull<World>,
     pub sys: NonNull<ErasedSystem<'a, R>>,
+    #[cfg(feature = "tracing")]
+    pub parent_span: tracing::Span,
 }
 
 impl<'a, R> std::fmt::Debug for SystemJob<'a, R> {
@@ -360,7 +362,12 @@ impl<'a, R> AsJob for SystemJob<'a, R> {
             let world = job.world.as_ref();
 
             #[cfg(feature = "tracing")]
-            let _e = tracing::trace_span!("system", name = sys.descriptor.name.as_str()).entered();
+            let _e = tracing::trace_span!(
+                parent: &job.parent_span,
+                "system",
+                name = sys.descriptor.name.as_str()
+            )
+            .entered();
 
             (sys.execute)(world, sys.system_idx);
             ExecutionState::Done

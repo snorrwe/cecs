@@ -91,6 +91,8 @@ impl Schedule {
                         // so maybe memoize the vector and clone per tick?
                         world: NonNull::from(world),
                         sys: NonNull::from(s),
+                        #[cfg(feature = "tracing")]
+                        parent_span: tracing::Span::current(),
                     }
                 })
                 .collect::<Vec<_>>(),
