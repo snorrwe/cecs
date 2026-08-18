@@ -953,6 +953,10 @@ impl World {
         self.deleted.clear();
         std::mem::swap(&mut self.deleted, &mut self.newly_deleted);
     }
+
+    pub fn resources(&self) -> &ResourceStorage {
+        &self.resources
+    }
 }
 
 // # SAFETY

@@ -75,6 +75,10 @@ impl ResourceStorage {
     pub fn contains<T: 'static>(&self) -> bool {
         self.resources.contains_key(&TypeId::of::<T>())
     }
+
+    pub fn len(&self) -> usize {
+        self.resources.len()
+    }
 }
 
 pub(crate) struct ErasedResource {
