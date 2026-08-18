@@ -925,6 +925,11 @@ impl World {
         &self.archetypes
     }
 
+    /// empty archetes in the staging area
+    pub fn archetypes_staging(&self) -> &BTreeMap<TypeHash, Pin<Box<EntityTable>>> {
+        &self.archetypes_staging
+    }
+
     pub fn entity_table(&self, id: EntityId) -> Option<&EntityTable> {
         let (arch, _idx) = self.entity_ids().read(id).ok()?;
         unsafe { Some(arch.as_ref()) }
