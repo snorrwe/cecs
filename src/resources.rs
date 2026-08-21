@@ -81,7 +81,7 @@ impl ResourceStorage {
     }
 }
 
-pub(crate) struct ErasedResource {
+pub struct ErasedResource {
     inner: *mut u8,
     finalize: fn(&mut ErasedResource),
     #[cfg(feature = "clone")]
