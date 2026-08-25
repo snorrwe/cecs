@@ -429,7 +429,9 @@ macro_rules! impl_intosys_fn {
                     $(
                         let p = crate::query::ensure_query_valid::<$t>();
                         assert!(p.is_disjoint(&_props) || (p.exclusive && _props.is_empty())
-                                , "system {} has incompatible queries!", std::any::type_name::<F>());
+                                , "system {} has incompatible queries! First conflict at: {}"
+                                , std::any::type_name::<F>()
+                                , std::any::type_name::<$t>());
                         _props.extend(p);
                     )*
                 }
