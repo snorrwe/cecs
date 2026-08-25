@@ -1,4 +1,18 @@
 Changelog
+## [0.1.12] - 2026-08-25
+
+### 🚀 Features
+
+- Add query_collection macro
+
+### 🚜 Refactor
+
+- [**breaking**] Do not panic on command failures, just emit a debug log
+- Remove run_once span
+
+### ⚙️ Miscellaneous Tasks
+
+- Inherit parent tracing span in jobs
 
 ## [0.1.11] - 2026-07-10
 
@@ -19,7 +33,7 @@ Changelog
 
 ### 🚜 Refactor
 
-- \[**breaking**\] Mark Schedule::jobs as unsafe
+- [**breaking**] Mark Schedule::jobs as unsafe
 - Create custom errors for Commands that provide more context on failure
 - Mark component set / remove as public
 
@@ -47,7 +61,7 @@ Changelog
 
 ### 🚜 Refactor
 
-- \[**breaking**\] Run all should_run systems, even if one fails the check
+- [**breaking**] Run all should_run systems, even if one fails the check
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -57,13 +71,13 @@ Changelog
 
 ### 🚀 Features
 
-- Accept SystemStageBuilder in add\_|run_stage
+- Accept SystemStageBuilder in add_|run_stage
 - Abort if a worker thread panics.
 - Add versioning to WorldPersister
 
 ### 🚜 Refactor
 
-- \[**breaking**\] Rename persister module to serde
+- [**breaking**] Rename persister module to serde
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -94,7 +108,7 @@ Changelog
 ### 🚜 Refactor
 
 - Use Arc instead of Rc inside SystemDescriptors as they are Send
-- \[**breaking**\] Remove tuple implementation for 16+ length tuples, as tuples may be nested now
+- [**breaking**] Remove tuple implementation for 16+ length tuples, as tuples may be nested now
 - Reduce number of 'spins' the job system threads do when the queues are empty
 - Add SystemStageBuilder
 - Use the same formatting for EntityId in debug and display
@@ -153,5 +167,6 @@ Changelog
 
 - Invert if
 - Return commands result in run_system
-- \[**breaking**\] Remove system pipes
-- \[**breaking**\] Remove component setters from the public interface
+- [**breaking**] Remove system pipes
+- [**breaking**] Remove component setters from the public interface
+
