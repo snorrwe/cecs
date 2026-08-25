@@ -46,6 +46,85 @@ pub unsafe trait WorldQuery<'a> {
     }
 }
 
+/// Implementing an aggregate query type is tedious and error-prone
+/// Use this macro instead
+///
+/// ```rust
+/// # use cecs::prelude::*;
+///
+/// cecs::query_collection! {
+/// pub struct MyQuery<'a> {
+///     pub foo: Query<'a, &'a i32>,
+///     pub bar: ResMut<'a, i32>
+/// }
+/// }
+///
+/// // note that we're not wrapping our MyQuery type in a Query or Res!
+/// fn system(q: MyQuery) {
+///     // use query
+///     assert_eq!(q.foo.count(), 4);
+///     assert_eq!(*q.bar, 68);
+/// }
+///
+/// # let mut world = World::new(4);
+/// # for i in 0..4i32 {
+/// #    let id = world.insert_entity();
+/// #    world.set_component(id, i);
+/// # }
+/// # world.insert_resource(68i32);
+/// # world.run_view_system(system);
+/// ```
+#[macro_export]
+macro_rules! query_collection {
+    (
+    $(#[$struct_attr:meta])*
+    $struct_vis: vis struct $name: ident <$life: lifetime> {
+         $(
+            $(#[$field_attr:meta])*
+            $field_vis: vis $field: ident : $ty : ty
+          ),*$(,)?
+     }) => {
+         $(#[$struct_attr])*
+         $struct_vis struct $name <$life> {
+             $($(#[$field_attr])* $field_vis $field : $ty),*
+         }
+
+         unsafe impl<$life> cecs::query::WorldQuery<$life> for $name <$life> {
+            fn new(db: & $life World, system_idx: usize) -> Self {
+               Self {
+                   $(
+                       $field: <$ty as cecs::query::WorldQuery>::new(db, system_idx)
+                   ),*
+               }
+            }
+
+            fn components_mut(_set: &mut std::collections::HashSet<std::any::TypeId>) {
+                $(<$ty as cecs::query::WorldQuery>::components_mut(_set));*
+            }
+
+            fn components_const(_set: &mut std::collections::HashSet<std::any::TypeId>) {
+                $(<$ty as cecs::query::WorldQuery>::components_const(_set));*
+            }
+
+            fn resources_mut(_set: &mut std::collections::HashSet<std::any::TypeId>) {
+                $(<$ty as cecs::query::WorldQuery>::resources_mut(_set));*
+            }
+
+            fn resources_const(_set: &mut std::collections::HashSet<std::any::TypeId>) {
+                $(<$ty as cecs::query::WorldQuery>::resources_const(_set));*
+            }
+
+            fn exclusive() -> bool {
+                false $(|| <$ty as cecs::query::WorldQuery>::exclusive())*
+            }
+
+            fn read_only() -> bool {
+                false $(|| <$ty as cecs::query::WorldQuery>::read_only())*
+            }
+         }
+     };
+}
+
 unsafe impl<'a> WorldQuery<'a> for () {
     fn new(_db: &'a World, _system_idx: usize) -> Self {}
     fn read_only() -> bool {
