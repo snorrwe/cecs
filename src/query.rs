@@ -262,7 +262,7 @@ where
     /// Mutable references may be demoted to const references, but const references may not be
     /// promoted to mutable references.
     ///
-    /// The query has to be uniquely borrowed, because the subquery _may_ mutably borrow the same data as the parent query
+    /// The query has to be uniquely borrowed, because the subquery _may_ mutably borrow the same data as another subset query
     ///
     /// # Panics
     ///
