@@ -103,7 +103,7 @@ impl Schedule {
                 continue;
             };
             for j in parents {
-                let Some(j) = id_map.get(&j) else {
+                let Some(j) = id_map.get(j) else {
                     continue;
                 };
                 graph.add_dependency(*j, *i);

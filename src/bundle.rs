@@ -14,7 +14,7 @@ macro_rules! impl_tuple {
                 let mut ty = archetype.ty();
                 $(
                    if !archetype.contains_column::<$ty>() {
-                        ty = ty ^hash_ty::<$ty>();
+                        ty ^= hash_ty::<$ty>();
                    }
                 )*
                 ty

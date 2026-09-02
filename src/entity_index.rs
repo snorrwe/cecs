@@ -198,9 +198,9 @@ impl EntityIndex {
         }
         // not found
         if self.entries()[needle as usize].generation == id.generation() {
-            return Err(InsertError::AlreadyInserted(id));
+            Err(InsertError::AlreadyInserted(id))
         } else {
-            return Err(InsertError::Taken(id));
+            Err(InsertError::Taken(id))
         }
     }
 
@@ -229,7 +229,7 @@ impl EntityIndex {
             entry.arch = std::ptr::null_mut();
             entry.row_index = SENTINEL;
         }
-        let id = EntityId::new(index as u32, entry.generation);
+        let id = EntityId::new(index, entry.generation);
         #[cfg(feature = "tracing")]
         tracing::trace!(%id, "Initialized id");
         id
@@ -309,8 +309,8 @@ impl EntityIndex {
         let index = id.index() as usize;
         let generation = id.generation();
         match self.entries().get(index) {
-            Some(entry) => entry.generation == generation && entry.arch != std::ptr::null_mut(),
-            None => return false,
+            Some(entry) => entry.generation == generation && !entry.arch.is_null(),
+            None => false,
         }
     }
 

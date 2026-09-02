@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod test;
 
-use std::{any::TypeId, collections::HashSet, ptr::NonNull, sync::Arc, u128};
+use std::{any::TypeId, collections::HashSet, ptr::NonNull, sync::Arc};
 
 use cfg_if::cfg_if;
 use rustc_hash::FxHashMap;
@@ -130,8 +130,8 @@ fn collapse_stages<'a>(
     for sys in stage.systems.iter_mut() {
         sys.should_run_mask = mask;
     }
-    systems.extend(stage.systems.into_iter());
-    should_run.extend(stage.should_run.into_iter());
+    systems.extend(stage.systems);
+    should_run.extend(stage.should_run);
     for child in stage.nested {
         collapse_stages(should_run, systems, child, number_of_flags, mask);
     }
@@ -148,12 +148,13 @@ impl<'a> SystemStageBuilder<'a> {
         let should_run: Vec<_> = should_run.into_iter().enumerate().collect();
 
         SystemStage {
-            name: name,
+            name,
             systems: sorted_systems(systems),
             should_run: sorted_systems(should_run),
         }
     }
 
+    #[allow(clippy::new_ret_no_self)]
     pub fn new<N: Into<String>>(name: N) -> Self {
         Self {
             name: name.into(),
@@ -198,14 +199,12 @@ impl<'a> SystemStageBuilder<'a> {
     where
         S: IntoSystem<'a, P, ()>,
     {
-        let system_idx;
-
         cfg_if!(
             if #[cfg(feature = "parallel")] {
-                system_idx = self.systems.len();
+                let system_idx = self.systems.len();
             }
             else {
-                system_idx = 0;
+                let system_idx = 0;
             }
         );
 
@@ -248,6 +247,7 @@ impl<'a> SystemStage<'a> {
         self.systems.len() + self.should_run.len()
     }
 
+    #[allow(clippy::new_ret_no_self)]
     pub fn new<N: Into<String>>(name: N) -> SystemStageBuilder<'a> {
         SystemStageBuilder::new(name)
     }

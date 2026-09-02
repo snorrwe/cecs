@@ -155,10 +155,10 @@ impl QueryProperties {
 
     pub fn extend(&mut self, props: QueryProperties) {
         self.exclusive = self.exclusive || props.exclusive;
-        self.comp_mut.extend(props.comp_mut.into_iter());
-        self.res_mut.extend(props.res_mut.into_iter());
-        self.comp_const.extend(props.comp_const.into_iter());
-        self.res_const.extend(props.res_const.into_iter());
+        self.comp_mut.extend(props.comp_mut);
+        self.res_mut.extend(props.res_mut);
+        self.comp_const.extend(props.comp_const);
+        self.res_const.extend(props.res_const);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -432,6 +432,10 @@ where
     /// on multiple threads.
     ///
     /// The top-level system still needs &mut access to the components.
+    ///
+    /// # Safety
+    ///
+    /// It is the callers responsiblility to ensure no mutable aliasing happens to the items
     pub unsafe fn iter_unsafe(
         &'a self,
     ) -> impl Iterator<Item = <T as QueryFragment>::ItemUnsafe<'a>> {
@@ -473,6 +477,9 @@ where
         }
     }
 
+    /// # Safety
+    ///
+    /// Callers must ensure no mutable aliasing happening
     pub unsafe fn fetch_unsafe(
         &'a self,
         id: EntityId,
@@ -615,7 +622,13 @@ pub trait QueryFragment {
     type ItemMut<'a>;
     type ItMut<'a>: Iterator<Item = Self::ItemMut<'a>>;
 
+    /// # Safety
+    ///
+    /// It is the caller's responsiblility to ensure no mutable aliasing happens
     unsafe fn iter_unsafe(archetype: &EntityTable) -> Self::ItUnsafe<'_>;
+    /// # Safety
+    ///
+    /// It is the caller's responsiblility to ensure no mutable aliasing happens
     unsafe fn fetch_unsafe(
         archetype: &EntityTable,
         index: RowIndex,
@@ -668,7 +681,7 @@ impl<T: Component> QueryFragment for Has<T> {
     type ItemUnsafe<'a> = bool;
     type ItUnsafe<'a> = Self::It<'a>;
     type Item<'a> = bool;
-    type It<'a> = std::iter::Take<std::iter::Repeat<bool>>;
+    type It<'a> = std::iter::RepeatN<bool>;
     type ItemMut<'a> = bool;
     type ItMut<'a> = Self::It<'a>;
 
@@ -684,7 +697,7 @@ impl<T: Component> QueryFragment for Has<T> {
     }
 
     fn iter<'a>(archetype: &'a EntityTable) -> Self::It<'a> {
-        std::iter::repeat(archetype.contains_column::<T>()).take(archetype.len())
+        std::iter::repeat_n(archetype.contains_column::<T>(), archetype.len())
     }
 
     fn iter_mut<'a>(archetype: &'a EntityTable) -> Self::ItMut<'a> {
@@ -720,7 +733,7 @@ impl<T: Component> QueryFragment for Has<T> {
         let len = archetype.entities.len();
         let range = slice::range(range, ..len);
         let len = range.len();
-        std::iter::repeat(archetype.contains_column::<T>()).take(len)
+        std::iter::repeat_n(archetype.contains_column::<T>(), len)
     }
 
     fn iter_range_mut(
@@ -765,7 +778,7 @@ impl QueryFragment for ComponentSet {
     type Item<'a> = std::rc::Rc<BTreeSet<TypeId>>;
     type ItemUnsafe<'a> = Self::Item<'a>;
     type ItUnsafe<'a> = Self::It<'a>;
-    type It<'a> = std::iter::Take<std::iter::Repeat<Self::Item<'a>>>;
+    type It<'a> = std::iter::RepeatN<Self::Item<'a>>;
     type ItemMut<'a> = Self::Item<'a>;
     type ItMut<'a> = Self::It<'a>;
 
@@ -814,7 +827,7 @@ impl QueryFragment for ComponentSet {
         let range = slice::range(range, ..len);
         let len = range.len();
         let set = archetype.components().map(|(id, _)| id).collect();
-        std::iter::repeat(std::rc::Rc::new(set)).take(len)
+        std::iter::repeat_n(std::rc::Rc::new(set), len)
     }
 
     fn iter_range_mut(
@@ -968,7 +981,7 @@ impl QueryFragment for ArchetypeHash {
 // Optional query fetch functions return Option<Option<T>> where the outer optional is always Some.
 // This awkward interface is there because of combined queries
 //
-impl<'a, T: Component> QueryFragment for Option<&'a T> {
+impl<T: Component> QueryFragment for Option<&T> {
     type ItemUnsafe<'b> = Option<*mut T>;
     type ItUnsafe<'b> = Box<dyn Iterator<Item = Self::ItemUnsafe<'b>> + 'b>;
     type Item<'b> = Option<&'b T>;
@@ -1051,7 +1064,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a T> {
     }
 }
 
-impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
+impl<T: Component> QueryFragment for Option<&mut T> {
     type ItemUnsafe<'b> = Option<*mut T>;
     type ItUnsafe<'b> = Box<dyn Iterator<Item = Self::ItemUnsafe<'b>> + 'b>;
     type Item<'b> = Option<&'b T>;
@@ -1147,7 +1160,7 @@ impl<'a, T: Component> QueryFragment for Option<&'a mut T> {
     }
 }
 
-impl<'a, T: Component> QueryFragment for &'a T {
+impl<T: Component> QueryFragment for &T {
     type ItemUnsafe<'b> = *mut T;
     type ItUnsafe<'b> = Box<dyn Iterator<Item = Self::ItemUnsafe<'b>>>;
     type Item<'b> = &'b T;
@@ -1237,7 +1250,7 @@ impl<'a, T: Component> QueryFragment for &'a T {
     }
 }
 
-impl<'a, T: Component> QueryFragment for &'a mut T {
+impl<T: Component> QueryFragment for &mut T {
     type ItemUnsafe<'b> = *mut T;
     type ItUnsafe<'b> = Box<dyn Iterator<Item = *mut T>>;
     type Item<'b> = &'b T;
@@ -1317,7 +1330,7 @@ impl<'a, T: Component> QueryFragment for &'a mut T {
             .components
             .get(&TypeId::of::<T>())
             .map(|columns| unsafe {
-                let col = (&mut *columns.get()).as_slice::<T>();
+                let col = (&*columns.get()).as_slice::<T>();
                 let len = col.len();
                 let range = slice::range(range, ..len);
                 col[range].iter()

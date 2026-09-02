@@ -51,7 +51,9 @@ impl ResourceStorage {
             .map(|table| unsafe { (*table.get()).as_inner::<T>() })
     }
 
-    /// # SAFETY caller must ensure that no mutable aliasing happens to the value
+    /// # Safety
+    /// caller must ensure that no mutable aliasing happens to the value
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn fetch_mut<T: 'static>(&self) -> Option<&mut T> {
         self.resources
             .get(&TypeId::of::<T>())
@@ -78,6 +80,10 @@ impl ResourceStorage {
 
     pub fn len(&self) -> usize {
         self.resources.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -132,6 +138,8 @@ impl ErasedResource {
         unsafe { &mut *self.inner.cast() }
     }
 
+    /// # SAFETY
+    /// Must be called with the same type as `new`
     pub unsafe fn into_inner<T>(mut self) -> Box<T> {
         unsafe {
             let inner = self.inner;

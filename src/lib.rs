@@ -132,7 +132,7 @@ const fn hash_ty<T: 'static>() -> TypeHash {
 
 const fn hash_type_id(ty: TypeId) -> TypeHash {
     let hash: TypeHash = unsafe { transmute(ty) };
-    if hash == unsafe { transmute::<_, TypeHash>(TypeId::of::<()>()) } {
+    if hash == unsafe { transmute::<std::any::TypeId, TypeHash>(TypeId::of::<()>()) } {
         // ensure that unit type has hash=0
         0
     } else {

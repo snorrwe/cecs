@@ -32,6 +32,12 @@ impl WorldPersister<(), ()> {
     }
 }
 
+impl Default for WorldPersister<(), ()> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SerTy {
     Component,
@@ -385,7 +391,7 @@ where
             // or ignore obsolete types
             return Ok(());
         }
-        return visit_map_value_impl::<A, T>(self.ty, map, world);
+        visit_map_value_impl::<A, T>(self.ty, map, world)
     }
 
     fn load_version<'a, D: serde::Deserializer<'a>>(

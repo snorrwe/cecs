@@ -91,7 +91,7 @@ impl EntityTable {
     /// return the updated entityid, if any
     #[must_use]
     pub fn remove(&mut self, row_index: RowIndex) -> Option<EntityId> {
-        for (_, storage) in self.components.iter_mut() {
+        for storage in self.components.values_mut() {
             storage.get_mut().remove(row_index);
         }
         self.entities.swap_remove(row_index as usize);
@@ -262,6 +262,7 @@ impl EntityTable {
     }
 
     /// # SAFETY caller must ensure that no mutable aliasing happens to the row
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_component_mut<T: 'static>(&self, row: RowIndex) -> Option<&mut T> {
         self.components
             .get(&TypeId::of::<T>())

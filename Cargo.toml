@@ -6,7 +6,7 @@ description = "Entity database for the game 'Cao-Lo'"
 license = "MIT"
 repository = "https://github.com/caolo-game/cecs"
 readme = "README.md"
-rust-version = "1.85"
+rust-version = "1.91"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -55,7 +55,7 @@ unsafe impl<'a> WorldQuery<'a> for Commands<'a> {
 impl<'a> Commands<'a> {
     pub(crate) fn new(w: &'a World, system_idx: usize) -> Self {
         Self {
-            world: &w,
+            world: w,
             cmd: &w.commands[system_idx],
         }
     }
@@ -221,15 +221,14 @@ fn cmd_ty(c: &CommandPayload) -> (u32, u32) {
 /// - sort by entity ids
 /// - merge updates
 /// - if theres a delete action, then discard the other updates
-pub(crate) fn prepare_commands(cmd: &mut Vec<CommandPayload>) {
+pub(crate) fn prepare_commands(cmd: &mut [CommandPayload]) {
     cmd.sort_by_key(cmd_ty);
 
     // deduplicate entity commands
 
     if let Some(entity_commands) = cmd
         .chunk_by_mut(|a, b| cmd_ty(a) == cmd_ty(b))
-        .filter(|g| matches!(&g[0], &CommandPayload::Entity(_)))
-        .next()
+        .find(|g| matches!(&g[0], &CommandPayload::Entity(_)))
     {
         for g in entity_commands.chunk_by_mut(|a, b| match (a, b) {
             (CommandPayload::Entity(a), CommandPayload::Entity(b)) => a.can_merge(b),
@@ -328,7 +327,7 @@ impl EntityCommands {
         if !self.can_merge(&other) {
             return Err(other);
         }
-        self.payload.extend(other.payload.into_iter());
+        self.payload.extend(other.payload);
         Ok(())
     }
 

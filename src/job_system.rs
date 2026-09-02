@@ -558,6 +558,10 @@ impl JobHandle {
 }
 
 pub trait AsJob: Send {
+    /// # Safety
+    ///
+    /// *mut Self is passed as input. Callers must ensure that it is properly cleaned up on
+    /// execution completion
     unsafe fn execute(instance: *const ()) -> ExecutionState;
 }
 
