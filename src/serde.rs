@@ -1,4 +1,4 @@
-//! Provides utilities to save and load Worlds.
+//! Provides utilities to save and load Worlds via serde.
 //!
 use serde::{
     Serialize,
