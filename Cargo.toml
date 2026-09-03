@@ -20,7 +20,7 @@ parallel = [
     "dep:futures-lite",
 ]
 clone = []
-serde = ["dep:serde", "dep:serde_derive", "dep:semver"]
+serde = ["dep:serde", "dep:serde_derive", "dep:semver", "dep:erased-serde"]
 
 [dependencies]
 smallvec = "1"
@@ -36,6 +36,7 @@ rustc-hash = "2.1.1"
 cfg-if = "1.0.4"
 futures-lite = { version = "2.6.1", optional = true }
 semver = { version = "1.0.27", optional = true, features = ["serde"] }
+erased-serde = { version = "0.4.10", optional = true }
 
 [dev-dependencies]
 bincode = "1"

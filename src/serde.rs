@@ -1,9 +1,11 @@
 //! Provides utilities to save and load Worlds via serde.
 //!
+use erased_serde::Serializer as _;
+use rustc_hash::FxHashMap;
 use serde::{
     Serialize,
-    de::{DeserializeOwned, Error, Visitor},
-    ser::SerializeMap,
+    de::{DeserializeOwned, Error, IgnoredAny, Visitor},
+    ser::SerializeSeq,
 };
 use std::marker::PhantomData;
 
@@ -11,41 +13,138 @@ use crate::{Component, World, entity_id::EntityId, prelude::Query};
 
 const VERSION_KEY: &str = "__version__";
 
+pub use erased_serde;
 pub use semver;
 pub type Version = semver::Version;
 
-pub struct WorldPersister<T = (), P = ()> {
-    next: Option<Box<P>>,
-    ty: SerTy,
-    _m: PhantomData<T>,
-    version: Option<Version>,
+trait ErasedColumnSerde {
+    fn id(&self) -> String;
+
+    fn save<'a>(&self, world: &'a World) -> Box<dyn erased_serde::Serialize + 'a>;
+    fn load(
+        &self,
+        world: &mut World,
+        d: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error>;
 }
 
-impl WorldPersister<(), ()> {
-    pub fn new() -> Self {
-        WorldPersister {
-            next: None,
-            ty: SerTy::Noop,
-            _m: PhantomData,
-            version: None,
+struct ComponentEntry<U> {
+    _m: PhantomData<U>,
+}
+
+struct ColumnSer<'a, U> {
+    _m: PhantomData<U>,
+    w: &'a World,
+}
+
+impl<'a, U: Component + serde::Serialize> serde::Serialize for ColumnSer<'a, U> {
+    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let q = Query::<(EntityId, &U)>::new(self.w);
+        let mut s = s.serialize_seq(Some(q.count()))?;
+        for t in q.iter() {
+            s.serialize_element(&t)?;
         }
+        s.end()
     }
 }
 
-impl Default for WorldPersister<(), ()> {
+impl<U: Component + serde::Serialize + DeserializeOwned> ErasedColumnSerde for ComponentEntry<U> {
+    fn id(&self) -> String {
+        format!(
+            "{:?}-{}",
+            SerTy::Component,
+            std::any::type_name::<U>().to_owned()
+        )
+    }
+
+    fn save<'a>(&self, world: &'a World) -> Box<dyn erased_serde::Serialize + 'a> {
+        let col = ColumnSer::<U> {
+            _m: PhantomData,
+            w: world,
+        };
+        Box::new(col)
+    }
+
+    fn load(
+        &self,
+        world: &mut World,
+        d: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error> {
+        // TODO: would be nice if we could circumvent this intermediate vec similar to ColumnSeed
+        let column: Vec<(EntityId, U)> = erased_serde::deserialize(d)?;
+
+        for (id, value) in column {
+            if !world.is_id_valid(id) {
+                #[cfg(feature = "tracing")]
+                tracing::trace!("Inserting id {id}");
+                world.insert_id(id).unwrap();
+            }
+            world.set_component(id, value).unwrap();
+        }
+
+        Ok(())
+    }
+}
+
+struct ResourceEntry<U> {
+    _m: PhantomData<U>,
+}
+
+impl<U: Component + serde::Serialize + DeserializeOwned> ErasedColumnSerde for ResourceEntry<U> {
+    fn id(&self) -> String {
+        format!(
+            "{:?}-{}",
+            SerTy::Resource,
+            std::any::type_name::<U>().to_owned()
+        )
+    }
+
+    fn save<'a>(&self, world: &'a World) -> Box<dyn erased_serde::Serialize + 'a> {
+        Box::new(world.get_resource::<U>())
+    }
+
+    fn load(
+        &self,
+        world: &mut World,
+        d: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error> {
+        let value: Option<U> = erased_serde::deserialize(d)?;
+        if let Some(value) = value {
+            world.insert_resource(value);
+        }
+        Ok(())
+    }
+}
+
+pub struct WorldPersister {
+    registered_rows: FxHashMap<String, Box<dyn ErasedColumnSerde>>,
+    version: Option<Version>,
+}
+
+impl Default for WorldPersister {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde_derive::Serialize, serde_derive::Deserialize,
+)]
 enum SerTy {
     Component,
     Resource,
-    Noop,
 }
 
-impl<T, P> WorldPersister<T, P> {
+impl WorldPersister {
+    pub fn new() -> Self {
+        WorldPersister {
+            registered_rows: Default::default(),
+            version: None,
+        }
+    }
     /// Add a version field to the serialized data.
     ///
     /// If the WorldPersister's major version is different than the serialized data version, then
@@ -56,136 +155,102 @@ impl<T, P> WorldPersister<T, P> {
         self
     }
 
+    fn register(&mut self, t: impl ErasedColumnSerde + 'static) {
+        self.registered_rows.insert(t.id(), Box::new(t));
+    }
+
     /// Component will be serialized
     ///
     /// Entities with no component in WorldPersister will not be serialized
     ///
     /// You can GC unserialized entities after deserialization by deleting entities with
     /// [[World::gc_empty_entities]]
-    pub fn with_component<U: Component + Serialize + DeserializeOwned>(
-        mut self,
-    ) -> WorldPersister<U, Self> {
-        WorldPersister {
-            version: self.version.take(),
-            next: Some(Box::new(self)),
-            ty: SerTy::Component,
-            _m: PhantomData,
-        }
+    pub fn with_component<U: Component + Serialize + DeserializeOwned>(mut self) -> Self {
+        self.register(ComponentEntry::<U> { _m: PhantomData });
+        self
     }
 
-    pub fn with_resource<U: Component + Serialize + DeserializeOwned>(
-        mut self,
-    ) -> WorldPersister<U, Self> {
-        WorldPersister {
-            version: self.version.take(),
-            next: Some(Box::new(self)),
-            ty: SerTy::Resource,
-            _m: PhantomData,
-        }
-    }
-}
-
-pub trait WorldSerializer: Sized {
-    fn with_component<U: Component + Serialize + DeserializeOwned>(self)
-    -> WorldPersister<U, Self>;
-    fn with_resource<U: Component + Serialize + DeserializeOwned>(self) -> WorldPersister<U, Self>;
-
-    fn save<S: serde::Serializer>(&self, s: S, world: &World) -> Result<S::Ok, S::Error>;
-    fn save_entry<S: serde::Serializer>(
+    pub fn save<S: serde::Serializer>(
         &self,
-        s: &mut S::SerializeMap,
+        s: S,
         world: &World,
-    ) -> Result<(), S::Error>;
+    ) -> Result<(), erased_serde::Error> {
+        let mut s = <dyn erased_serde::Serializer>::erase(s);
 
-    fn load<'a, D: serde::Deserializer<'a>>(&self, d: D) -> Result<World, D::Error>;
-    fn load_version<'a, D: serde::Deserializer<'a>>(
+        // outermost map, type -> list[id, values]
+        // bincode requires a length be specified
+        let mut len = self.registered_rows.len();
+        if self.version.is_some() {
+            len += 1;
+        }
+
+        let s = s
+            .erased_serialize_map(Some(len))
+            .map_err(erased_serde::Error::custom)?;
+
+        if let Some(v) = self.version.as_ref() {
+            s.erased_serialize_entry(&VERSION_KEY, v)
+                .map_err(erased_serde::Error::custom)?;
+        }
+
+        for (k, v) in self.registered_rows.iter() {
+            s.erased_serialize_entry(k, &v.save(world))
+                .map_err(erased_serde::Error::custom)?;
+        }
+
+        s.erased_end();
+        Ok(())
+    }
+
+    pub fn with_resource<U: Component + Serialize + DeserializeOwned>(mut self) -> WorldPersister {
+        self.register(ResourceEntry::<U> { _m: PhantomData });
+        self
+    }
+
+    pub fn load<'a, D: serde::Deserializer<'a>>(&self, d: D) -> Result<World, D::Error> {
+        let world = World::new(0);
+        let visitor = WorldVisitor {
+            persist: self,
+            world,
+        };
+        let world = d.deserialize_map(visitor)?;
+
+        Ok(world)
+    }
+
+    pub fn load_version<'a, D: serde::Deserializer<'a>>(
         &self,
         d: D,
-    ) -> Result<Option<Version>, D::Error>;
-
-    fn visit_map_value<'de, A>(
-        &self,
-        key: &str,
-        map: &mut A,
-        world: &mut World,
-    ) -> Result<(), A::Error>
-    where
-        A: serde::de::MapAccess<'de>;
-
-    fn count_entries(&self, world: &World) -> usize;
-}
-
-fn entry_name<T: 'static>(ty: SerTy) -> String {
-    format!("{:?}_{}", ty, std::any::type_name::<T>())
-}
-
-// Never actually called, just stops the impl recursion
-impl WorldSerializer for () {
-    fn with_component<U: Component + Serialize + DeserializeOwned>(
-        self,
-    ) -> WorldPersister<U, Self> {
-        unreachable!()
-    }
-
-    fn with_resource<U: Component + Serialize + DeserializeOwned>(self) -> WorldPersister<U, Self> {
-        unreachable!()
-    }
-
-    fn save<S: serde::Serializer>(&self, _s: S, _world: &World) -> Result<S::Ok, S::Error> {
-        unreachable!()
-    }
-
-    fn save_entry<S: serde::Serializer>(
-        &self,
-        _s: &mut S::SerializeMap,
-        _world: &World,
-    ) -> Result<(), S::Error> {
-        unreachable!()
-    }
-
-    fn load<'a, D: serde::Deserializer<'a>>(&self, _d: D) -> Result<World, D::Error> {
-        unreachable!()
-    }
-
-    fn load_version<'a, D: serde::Deserializer<'a>>(
-        &self,
-        _d: D,
     ) -> Result<Option<Version>, D::Error> {
-        unreachable!()
-    }
-
-    fn visit_map_value<'de, A>(
-        &self,
-        _key: &str,
-        _map: &mut A,
-        _world: &mut World,
-    ) -> Result<(), A::Error>
-    where
-        A: serde::de::MapAccess<'de>,
-    {
-        unreachable!()
-    }
-
-    /// return the number of types to be saved
-    fn count_entries(&self, _world: &World) -> usize {
-        0
+        let visitor = VersionVisitor;
+        let version = d.deserialize_map(visitor)?;
+        Ok(version)
     }
 }
 
-struct WorldVisitor<'a, T, P>
-where
-    P: WorldSerializer,
-    T: Component + DeserializeOwned + Serialize,
-{
-    persist: &'a WorldPersister<T, P>,
+struct WorldVisitor<'a> {
+    persist: &'a WorldPersister,
     world: World,
 }
 
-impl<'a, 'de: 'a, T, P> Visitor<'de> for WorldVisitor<'a, T, P>
-where
-    P: WorldSerializer,
-    T: Component + DeserializeOwned + Serialize,
-{
+/// used to bypass the intermediate deserialization of columns into vectors
+struct ColumnSeed<'a> {
+    entry: &'a dyn ErasedColumnSerde,
+    world: &'a mut World,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for ColumnSeed<'_> {
+    type Value = ();
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<(), D::Error> {
+        let mut d = <dyn erased_serde::Deserializer>::erase(d);
+        self.entry
+            .load(self.world, &mut d)
+            .map_err(D::Error::custom)
+    }
+}
+
+impl<'a, 'de: 'a> Visitor<'de> for WorldVisitor<'a> {
     type Value = World;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -213,8 +278,16 @@ where
                     }
                 }
             } else {
-                self.persist
-                    .visit_map_value(key.as_ref(), &mut map, &mut self.world)?;
+                let Some(row) = self.persist.registered_rows.get(key.as_ref()) else {
+                    // missing row is not an error
+                    map.next_value::<IgnoredAny>()?;
+                    continue;
+                };
+
+                map.next_value_seed(ColumnSeed {
+                    entry: row.as_ref(),
+                    world: &mut self.world,
+                })?;
             }
         }
 
@@ -235,193 +308,16 @@ impl<'de> Visitor<'de> for VersionVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
+        // json deserializer complains if I don't consume the entire dict
+        let mut result = None;
         while let Some(key) = map.next_key::<std::borrow::Cow<'de, str>>()? {
             if key == VERSION_KEY {
-                return map.next_value().map(Some);
+                result = map.next_value::<Version>().map(Some)?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
             }
         }
-
-        Ok(None)
-    }
-}
-
-fn save_impl<T: Component + Serialize, S: serde::Serializer>(
-    ty: SerTy,
-    s: &mut S::SerializeMap,
-    world: &World,
-) -> Result<(), S::Error> {
-    let tname = entry_name::<T>(ty);
-
-    #[cfg(feature = "tracing")]
-    tracing::trace!(name = &tname, "Serializing");
-    match ty {
-        SerTy::Component => {
-            let values: Vec<(EntityId, &T)> = Query::<(EntityId, &T)>::new(world)
-                .iter()
-                .inspect(|(_id, _)| {
-                    #[cfg(feature = "tracing")]
-                    tracing::trace!(id = tracing::field::display(_id), "Serializing entity");
-                })
-                .collect();
-            if !values.is_empty() {
-                s.serialize_entry(&tname, &values)?;
-            }
-        }
-        SerTy::Resource => {
-            if let Some(value) = world.get_resource::<T>() {
-                s.serialize_entry(&tname, value)?;
-            }
-        }
-        SerTy::Noop => {}
-    }
-    #[cfg(feature = "tracing")]
-    tracing::trace!(name = &tname, "Serializing done");
-    Ok(())
-}
-
-fn visit_map_value_impl<'de, A, T: Component + DeserializeOwned>(
-    ty: SerTy,
-    map: &mut A,
-    world: &mut World,
-) -> Result<(), A::Error>
-where
-    A: serde::de::MapAccess<'de>,
-{
-    let _tname = entry_name::<T>(ty);
-    #[cfg(feature = "tracing")]
-    tracing::trace!(name = &_tname, "Deserializing");
-    match ty {
-        SerTy::Component => {
-            let values: Vec<(EntityId, T)> = map.next_value()?;
-            #[cfg(feature = "tracing")]
-            tracing::trace!("Got {} entries", values.len());
-            for (id, value) in values {
-                if !world.is_id_valid(id) {
-                    #[cfg(feature = "tracing")]
-                    tracing::trace!("Inserting id {id}");
-                    world.insert_id(id).unwrap();
-                }
-                world.set_component(id, value).unwrap();
-            }
-        }
-        SerTy::Resource => {
-            let value: T = map.next_value()?;
-            world.insert_resource(value);
-        }
-        SerTy::Noop => {}
-    }
-
-    #[cfg(feature = "tracing")]
-    tracing::trace!(name = &_tname, "Deserializing done");
-
-    Ok(())
-}
-
-impl<T: Component + Serialize + DeserializeOwned, P> WorldSerializer for WorldPersister<T, P>
-where
-    P: WorldSerializer,
-{
-    fn with_component<U: Component + Serialize + DeserializeOwned>(
-        self,
-    ) -> WorldPersister<U, Self> {
-        self.with_component::<U>()
-    }
-
-    fn with_resource<U: Component + Serialize + DeserializeOwned>(self) -> WorldPersister<U, Self> {
-        self.with_resource::<U>()
-    }
-
-    fn save<S: serde::Serializer>(&self, s: S, world: &World) -> Result<S::Ok, S::Error> {
-        // outermost map, type -> list[id, values]
-        // bincode requires a length be specified
-        let mut len = self.count_entries(world);
-        if self.version.is_some() {
-            len += 1;
-        }
-
-        let mut s = s.serialize_map(Some(len))?;
-        if let Some(v) = self.version.as_ref() {
-            s.serialize_entry(VERSION_KEY, v)?;
-        }
-
-        self.save_entry::<S>(&mut s, world)?;
-        s.end()
-    }
-
-    fn save_entry<S: serde::Serializer>(
-        &self,
-        s: &mut S::SerializeMap,
-        world: &World,
-    ) -> Result<(), S::Error> {
-        save_impl::<T, S>(self.ty, s, world)?;
-
-        if let Some(p) = self.next.as_ref() {
-            p.save_entry::<S>(s, world)?;
-        }
-        Ok(())
-    }
-
-    fn load<'a, D: serde::Deserializer<'a>>(&self, d: D) -> Result<World, D::Error> {
-        let world = World::new(0);
-        let visitor = WorldVisitor {
-            persist: self,
-            world,
-        };
-        let world = d.deserialize_map(visitor)?;
-
-        Ok(world)
-    }
-
-    fn visit_map_value<'de, A>(
-        &self,
-        key: &str,
-        map: &mut A,
-        world: &mut World,
-    ) -> Result<(), A::Error>
-    where
-        A: serde::de::MapAccess<'de>,
-    {
-        let tname = entry_name::<T>(self.ty);
-        if tname != key {
-            if let Some(next) = &self.next {
-                next.visit_map_value(key, map, world)?;
-            }
-            // missing deserializaers are not an error,
-            // this lets clients add additional data into persistent payloads
-            // or ignore obsolete types
-            return Ok(());
-        }
-        visit_map_value_impl::<A, T>(self.ty, map, world)
-    }
-
-    fn load_version<'a, D: serde::Deserializer<'a>>(
-        &self,
-        d: D,
-    ) -> Result<Option<Version>, D::Error> {
-        let visitor = VersionVisitor;
-        let version = d.deserialize_map(visitor)?;
-        Ok(version)
-    }
-
-    fn count_entries(&self, world: &World) -> usize {
-        let mut c = 0;
-        match self.ty {
-            SerTy::Component => {
-                if !Query::<&T>::new(world).is_empty() {
-                    c += 1;
-                }
-            }
-            SerTy::Resource => {
-                if world.get_resource::<T>().is_some() {
-                    c += 1
-                }
-            }
-            SerTy::Noop => {}
-        }
-        if let Some(next) = self.next.as_ref() {
-            c += next.count_entries(world);
-        }
-        c
+        Ok(result)
     }
 }
 
@@ -470,6 +366,8 @@ mod tests {
         p.save(&mut s, &world0).unwrap();
 
         let result = String::from_utf8(result).unwrap();
+
+        println!("{result}");
 
         let world1 = p
             .load(&mut serde_json::Deserializer::from_str(result.as_str()))
@@ -721,6 +619,8 @@ mod tests {
 
         p.save(&mut s, &world0).unwrap();
 
+        println!("{}", String::from_utf8(result.clone()).unwrap());
+
         let version = p
             .load_version(&mut serde_json::Deserializer::from_slice(result.as_slice()))
             .unwrap();
@@ -757,8 +657,8 @@ mod tests {
             .expect_err("Deserialization of incompatible versions should fail");
 
         assert_eq!(
-            err.to_string(),
-            "Version mismatch. WorldPersister expected version `2.0.0` but the payload has version `1.0.0` at line 3 column 1"
+            &err.to_string()[0..93],
+            "Version mismatch. WorldPersister expected version `2.0.0` but the payload has version `1.0.0`",
         );
     }
 
