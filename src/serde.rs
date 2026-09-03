@@ -1,8 +1,7 @@
 //! Provides utilities to save and load Worlds via serde.
 //!
-use erased_serde::Serializer as _;
 use rustc_hash::FxHashMap;
-use serde::ser::Error as _;
+use serde::ser::{Error as _, SerializeMap as _};
 use serde::{
     Serialize,
     de::{DeserializeOwned, Error, IgnoredAny, Visitor},
@@ -171,9 +170,7 @@ impl WorldPersister {
         self
     }
 
-    pub fn save<S: serde::Serializer>(&self, s: S, world: &World) -> Result<(), S::Error> {
-        let mut s = <dyn erased_serde::Serializer>::erase(s);
-
+    pub fn save<S: serde::Serializer>(&self, ser: S, world: &World) -> Result<S::Ok, S::Error> {
         // outermost map, type -> list[id, values]
         // bincode requires a length be specified
         let mut len = self.registered_rows.len();
@@ -181,22 +178,19 @@ impl WorldPersister {
             len += 1;
         }
 
-        let s = s
-            .erased_serialize_map(Some(len))
-            .map_err(S::Error::custom)?;
+        let mut s = ser.serialize_map(Some(len)).map_err(S::Error::custom)?;
 
         if let Some(v) = self.version.as_ref() {
-            s.erased_serialize_entry(&VERSION_KEY, v)
+            s.serialize_entry(&VERSION_KEY, v)
                 .map_err(S::Error::custom)?;
         }
 
         for (k, v) in self.registered_rows.iter() {
-            s.erased_serialize_entry(k, &v.save(world))
+            s.serialize_entry(k, &v.save(world))
                 .map_err(S::Error::custom)?;
         }
 
-        s.erased_end();
-        Ok(())
+        s.end()
     }
 
     pub fn with_resource<U: Component + Serialize + DeserializeOwned>(mut self) -> WorldPersister {
