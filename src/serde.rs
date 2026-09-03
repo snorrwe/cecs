@@ -2,6 +2,7 @@
 //!
 use erased_serde::Serializer as _;
 use rustc_hash::FxHashMap;
+use serde::ser::Error as _;
 use serde::{
     Serialize,
     de::{DeserializeOwned, Error, IgnoredAny, Visitor},
@@ -170,11 +171,7 @@ impl WorldPersister {
         self
     }
 
-    pub fn save<S: serde::Serializer>(
-        &self,
-        s: S,
-        world: &World,
-    ) -> Result<(), erased_serde::Error> {
+    pub fn save<S: serde::Serializer>(&self, s: S, world: &World) -> Result<(), S::Error> {
         let mut s = <dyn erased_serde::Serializer>::erase(s);
 
         // outermost map, type -> list[id, values]
@@ -186,16 +183,16 @@ impl WorldPersister {
 
         let s = s
             .erased_serialize_map(Some(len))
-            .map_err(erased_serde::Error::custom)?;
+            .map_err(S::Error::custom)?;
 
         if let Some(v) = self.version.as_ref() {
             s.erased_serialize_entry(&VERSION_KEY, v)
-                .map_err(erased_serde::Error::custom)?;
+                .map_err(S::Error::custom)?;
         }
 
         for (k, v) in self.registered_rows.iter() {
             s.erased_serialize_entry(k, &v.save(world))
-                .map_err(erased_serde::Error::custom)?;
+                .map_err(S::Error::custom)?;
         }
 
         s.erased_end();
