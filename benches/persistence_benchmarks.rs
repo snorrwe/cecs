@@ -3,11 +3,7 @@ use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
-use cecs::{
-    World,
-    prelude::*,
-    serde::{WorldPersister, WorldSerializer},
-};
+use cecs::{World, prelude::*, serde::WorldPersister};
 
 macro_rules! components {
     ($ ($x: ident),*) => {
@@ -26,7 +22,7 @@ macro_rules! components {
             )*;
         }
 
-        fn persister() -> impl WorldSerializer {
+        fn persister() -> WorldPersister {
             WorldPersister::new()
             $(
                 .with_component::<$x>()
