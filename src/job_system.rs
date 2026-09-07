@@ -504,7 +504,13 @@ impl Inner {
                         if let Err(err) = panic::catch_unwind(panic::AssertUnwindSafe(move || {
                             worker.worker_thread();
                         })) {
-                            eprintln!("cecs worker {i} paniced: {err:?}\naborting");
+                            cfg_if::cfg_if! {
+                                if #[cfg(feature = "tracing")] {
+                                    tracing::error!(?err, "cecs worker {i} paniced. aborting");
+                                } else {
+                                    eprintln!("cecs worker {i} paniced: {err:?}\naborting");
+                                }
+                            }
                             abort();
                         }
                     })
