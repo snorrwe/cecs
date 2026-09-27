@@ -100,6 +100,7 @@ pub struct SystemStageBuilder<'a> {
     ///
     /// Nested stages share their Commands apply point with the parent stage
     pub nested: Vec<SystemStageBuilder<'a>>,
+    pub after: HashSet<TypeId>,
 }
 
 impl<'a> From<SystemStageBuilder<'a>> for SystemStage<'a> {
@@ -130,10 +131,23 @@ fn collapse_stages<'a>(
     for sys in stage.systems.iter_mut() {
         sys.should_run_mask = mask;
     }
+    let systems_from = systems.len();
+    let should_from = should_run.len();
     systems.extend(stage.systems);
     should_run.extend(stage.should_run);
     for child in stage.nested {
         collapse_stages(should_run, systems, child, number_of_flags, mask);
+    }
+
+    for sys in systems[systems_from..].iter_mut() {
+        let d = Arc::get_mut(&mut sys.descriptor)
+            .expect("descriptor should not be copied at this point");
+        d.after.extend(stage.after.iter().copied());
+    }
+    for sys in should_run[should_from..].iter_mut() {
+        let d = Arc::get_mut(&mut sys.descriptor)
+            .expect("descriptor should not be copied at this point");
+        d.after.extend(stage.after.iter().copied());
     }
 }
 
@@ -234,6 +248,16 @@ impl<'a> SystemStageBuilder<'a> {
     /// return the number of systems in total in this stage
     pub fn len(&self) -> usize {
         self.systems.len() + self.should_run.len()
+    }
+
+    pub fn after_system<'b, P, R2>(mut self, rhs: impl IntoSystem<'b, P, R2>) -> Self
+    where
+        Self: Sized,
+    {
+        let desc = rhs.descriptor();
+        let id = desc.id;
+        self.after.insert(id);
+        self
     }
 }
 

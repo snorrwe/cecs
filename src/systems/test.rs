@@ -203,3 +203,32 @@ fn test_nested_stage_should_run_with_siblings() {
 
     assert_eq!(c.0, 2);
 }
+
+#[test]
+fn test_stage_ordering() {
+    let mut w = World::new(0);
+    w.insert_resource(Counter(0));
+
+    fn count_0(mut c: ResMut<Counter>) {
+        assert_eq!(c.0, 0);
+        c.0 += 1;
+    }
+
+    // register count_1 system _after_ the nested stage, the after_system should reorder the nested system
+    let stage = SystemStage::new("root")
+        .with_nested_stage(
+            SystemStage::new("nested3")
+                .with_system(|mut c: ResMut<Counter>| {
+                    assert_eq!(c.0, 1);
+                    c.0 += 1;
+                })
+                .after_system(count_0),
+        )
+        .with_system(count_0);
+
+    w.run_stage(stage);
+
+    let c: &Counter = w.get_resource().unwrap();
+
+    assert_eq!(c.0, 2);
+}
