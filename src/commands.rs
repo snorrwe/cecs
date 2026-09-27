@@ -214,7 +214,7 @@ fn cmd_ty(c: &CommandPayload) -> (u32, u32) {
 /// - merge updates
 /// - if theres a delete action, then discard the other updates
 pub(crate) fn prepare_commands(cmd: &mut [CommandPayload]) {
-    cmd.sort_by_key(cmd_ty);
+    cmd.sort_unstable_by_key(cmd_ty);
 
     // deduplicate entity commands
 
