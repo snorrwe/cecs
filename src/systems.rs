@@ -90,7 +90,7 @@ pub struct SystemStage<'a> {
     pub(crate) systems: SystemStorage<ErasedSystem<'a, ()>>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct SystemStageBuilder<'a> {
     pub name: String,
     pub should_run: SystemStorage<ErasedSystem<'a, bool>>,
