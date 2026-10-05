@@ -179,12 +179,13 @@ pub(crate) enum CommandPayload {
 
 fn action_ty(c: &EntityAction) -> (u32, u32) {
     match c {
-        EntityAction::Init(id) => (id.index(), 0),
-        EntityAction::InsertId(id) => (id.index(), 0),
-        EntityAction::Insert => (0, 0),
-        EntityAction::Fetch(id) => (id.index(), 1),
-        EntityAction::Merge { src, .. } => (src.index(), 1),
-        EntityAction::Delete(id) => (id.index(), 2),
+        EntityAction::Init(id) => (1 + id.index(), 0),
+        EntityAction::InsertId(id) => (1 + id.index(), 0),
+        EntityAction::Insert => (0, 1),
+        EntityAction::Fetch(id) => (1 + id.index(), 1),
+        EntityAction::Merge { src, .. } => (1 + src.index(), 1),
+        EntityAction::Delete(id) => (1 + id.index(), 2),
+        EntityAction::Noop => (0, 0),
     }
 }
 
@@ -268,6 +269,7 @@ pub struct EntityCommands {
 
 #[derive(Debug, Clone, Copy, Eq)]
 pub enum EntityAction {
+    Noop,
     Fetch(EntityId),
     /// Like fetch, but initialize the id first
     /// Insert actions can become Init actions if the id is requested
@@ -347,6 +349,7 @@ impl EntityCommands {
                 Ok(id)
             },
             EntityAction::Merge { src: _, dst } => Ok(dst),
+            EntityAction::Noop => Err(crate::entity_index::HandleTableError::NotFound),
         }
     }
 
@@ -389,6 +392,7 @@ impl EntityCommands {
                     .merge_entities(src, dst)
                     .map_err(|err| CommandError::MergeFail { src, dst, err });
             }
+            EntityAction::Noop => return Ok(()),
         };
         for cmd in self.payload {
             cmd.apply(id, world)?;
@@ -423,6 +427,16 @@ impl EntityCommands {
         self.payload.push(ErasedComponentCommand::from_component(
             ComponentCommand::<T>::Delete,
         ));
+        self
+    }
+
+    /// Consumes this EntityCommands, further calls to this particular instance will be ignored
+    pub fn delete(&mut self) -> &mut Self {
+        if let Ok(id) = self.id() {
+            self.action = EntityAction::Delete(id)
+        } else {
+            self.action = EntityAction::Noop
+        }
         self
     }
 }
@@ -781,5 +795,19 @@ mod tests {
             cmd.insert_resource(1i64);
         })
         .unwrap();
+    }
+
+    #[test]
+    fn deleting_a_just_inserted_entity_is_a_noop() {
+        let mut w = World::new(1);
+
+        w.run_system(|mut cmd: Commands| {
+            cmd.spawn().insert(1i32).delete();
+        })
+        .unwrap();
+
+        w.run_view_system(|q: Query<&i32>| {
+            assert_eq!(q.count(), 0);
+        });
     }
 }
