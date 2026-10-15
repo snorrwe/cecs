@@ -773,6 +773,7 @@ impl World {
         hasher.finish()
     }
 
+    #[inline]
     pub(crate) fn entity_ids(&self) -> &EntityIndex {
         unsafe { &*self.entity_index.get() }
     }

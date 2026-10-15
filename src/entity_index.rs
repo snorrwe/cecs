@@ -273,12 +273,14 @@ impl EntityIndex {
         }
     }
 
+    #[inline]
     fn get(&self, id: EntityId) -> Option<&Entry> {
         let index = id.index();
         self.is_valid(id)
             .then(|| unsafe { &*self.entries.add(index as usize) })
     }
 
+    #[inline]
     pub fn read(&self, id: EntityId) -> Result<(NonNull<EntityTable>, RowIndex), HandleTableError> {
         let res = self.get(id).ok_or(HandleTableError::NotFound)?;
         if res.arch.is_null() {
@@ -305,6 +307,7 @@ impl EntityIndex {
         self.free_list_push(index);
     }
 
+    #[inline]
     pub fn is_valid(&self, id: EntityId) -> bool {
         let index = id.index() as usize;
         let generation = id.generation();

@@ -1,5 +1,6 @@
 use crate::{Component, RowIndex, TypeHash, entity_id::EntityId, hash_ty, hash_type_id};
-use std::{alloc::Layout, any::TypeId, cell::UnsafeCell, collections::BTreeMap};
+use rustc_hash::FxHashMap;
+use std::{alloc::Layout, any::TypeId, cell::UnsafeCell};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArchetypeHash(pub TypeHash);
@@ -16,7 +17,7 @@ pub struct EntityTable {
     pub(crate) ty: TypeHash,
     pub(crate) rows: u32,
     pub(crate) entities: Vec<EntityId>,
-    pub(crate) components: BTreeMap<TypeId, UnsafeCell<Column>>,
+    pub(crate) components: FxHashMap<TypeId, UnsafeCell<Column>>,
 }
 
 unsafe impl Send for EntityTable {}
@@ -65,7 +66,7 @@ impl std::fmt::Debug for EntityTable {
 impl EntityTable {
     pub fn empty() -> Self {
         let ty = hash_ty::<()>();
-        let mut components = BTreeMap::new();
+        let mut components = FxHashMap::default();
         components.insert(TypeId::of::<()>(), UnsafeCell::new(Column::new::<()>(0)));
         Self {
             ty,
@@ -187,6 +188,7 @@ impl EntityTable {
         self.contains_column_ty(hash)
     }
 
+    #[inline]
     pub fn contains_column_ty(&self, ty: TypeId) -> bool {
         self.components.contains_key(&ty)
     }
@@ -246,7 +248,7 @@ impl EntityTable {
             ty: self.ty,
             rows: 0,
             entities: Vec::with_capacity(self.entities.len()),
-            components: BTreeMap::from_iter(
+            components: FxHashMap::from_iter(
                 self.components
                     .iter()
                     .map(|(id, col)| (*id, (unsafe { &*col.get() }.clone_empty)()))
@@ -255,18 +257,24 @@ impl EntityTable {
         }
     }
 
+    #[inline]
     pub fn get_component<T: 'static>(&self, row: RowIndex) -> Option<&T> {
-        self.components
-            .get(&TypeId::of::<T>())
-            .and_then(|rows| unsafe { (*rows.get()).as_slice().get(row as usize) })
+        self.components.get(&TypeId::of::<T>()).map(|rows| unsafe {
+            let col = &*rows.get();
+            debug_assert!(row < col.end);
+            &*col.data.cast::<T>().add(row as usize)
+        })
     }
 
     /// # SAFETY caller must ensure that no mutable aliasing happens to the row
+    #[inline]
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_component_mut<T: 'static>(&self, row: RowIndex) -> Option<&mut T> {
-        self.components
-            .get(&TypeId::of::<T>())
-            .and_then(|rows| unsafe { (*rows.get()).as_slice_mut().get_mut(row as usize) })
+        self.components.get(&TypeId::of::<T>()).map(|rows| unsafe {
+            let col = &mut *rows.get();
+            debug_assert!(row < col.end);
+            &mut *col.data.cast::<T>().add(row as usize)
+        })
     }
 
     pub fn components(&self) -> impl Iterator<Item = (TypeId, &Column)> {

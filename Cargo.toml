@@ -52,3 +52,6 @@ required-features = ["serde"]
 [[bench]]
 name = "core_benchmarks"
 harness = false
+[[bench]]
+name = "fetch_bench"
+harness = false
