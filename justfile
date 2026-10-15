@@ -20,3 +20,6 @@ sanitize: tsan asan
 
 changelog version:
     git cliff --tag {{ version }} --topo-order -o CHANGELOG.md
+
+bench:
+    cargo bench
