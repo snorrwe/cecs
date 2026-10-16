@@ -1,4 +1,23 @@
 Changelog
+## [0.2.0] - 2026-10-16
+
+### 🚀 Features
+
+- Add SystemStageBuilder::after_system to allow ordering a whole stage after a system
+- Allow deleting just created entities via their EntityCommands
+
+### 🐛 Bug Fixes
+
+- Allow using multiple commands on the same system
+
+### 🚜 Refactor
+
+- [**breaking**] SystemStageBuilder is no longer Clone
+
+### ⚡ Performance
+
+- Speed up random access queries (fetch/get_component/contains)
+
 ## [0.1.12] - 2026-08-25
 
 ### 🚀 Features
