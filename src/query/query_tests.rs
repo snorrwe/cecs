@@ -211,3 +211,27 @@ fn invalid_subset() {
 
     let _sub: Query<(&A, &mut C, EntityId)> = q.subset();
 }
+
+/// Test if this compiles
+///
+/// Ensures that ParForEachDescriptor ergonomics don't suck
+#[test]
+fn can_specify_batch_ergonomics() {
+    #[derive(Clone)]
+    struct Pollution(pub i32);
+    #[expect(unused)]
+    fn decrease_pollution_batched(mut q: Query<&mut Pollution>) {
+        q.parallel()
+            .with_batch_size(NonZeroUsize::new(256))
+            .for_each_mut(|p| {
+                p.0 -= 1;
+            });
+    }
+
+    #[expect(unused)]
+    fn decrease_pollution(mut q: Query<&mut Pollution>) {
+        q.par_for_each_mut(|p| {
+            p.0 -= 1;
+        });
+    }
+}

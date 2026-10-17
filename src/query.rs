@@ -524,19 +524,61 @@ where
         self.single_mut().unwrap()
     }
 
+    /// Configure parallel iteration over this query.
+    pub fn parallel(&mut self) -> ParallelQuery<'_, 'a, T, F> {
+        ParallelQuery {
+            query: self,
+            parameters: ParForEachParameters::default(),
+        }
+    }
+
     #[cfg(feature = "parallel")]
-    pub fn par_for_each<'b, Cb: Fn(<T as QueryFragment>::Item<'a>) + Sync + 'b>(
-        &'b self,
-        d: impl Into<ParForEachDescriptor<Cb>>,
-    ) where
-        T: Send + Sync,
-    {
-        let ParForEachDescriptor { f, batch_size } = d.into();
+    pub fn par_for_each<'b>(&'b self, f: impl Fn(<T as QueryFragment>::Item<'a>) + Sync + 'b) {
+        self.par_for_each_impl(f, ParForEachParameters::default());
+    }
+
+    #[cfg(feature = "parallel")]
+    fn par_for_each_impl<Cb: Fn(<T as QueryFragment>::Item<'a>) + Sync>(
+        &self,
+        f: Cb,
+        parameters: ParForEachParameters,
+    ) {
+        self.par_for_each_batches(parameters, |arch, range| {
+            T::iter_range(arch, range).for_each(&f);
+        });
+    }
+
+    #[cfg(feature = "parallel")]
+    pub fn par_for_each_mut<'b>(
+        &'b mut self,
+        f: impl Fn(<T as QueryFragment>::ItemMut<'a>) + Sync + 'b,
+    ) {
+        self.par_for_each_mut_impl(f, ParForEachParameters::default());
+    }
+
+    #[cfg(feature = "parallel")]
+    fn par_for_each_mut_impl(
+        &mut self,
+        f: impl Fn(<T as QueryFragment>::ItemMut<'a>) + Sync,
+        parameters: ParForEachParameters,
+    ) {
+        self.par_for_each_batches(parameters, |arch, range| {
+            T::iter_range_mut(arch, range).for_each(&f);
+        });
+    }
+
+    #[cfg(feature = "parallel")]
+    fn par_for_each_batches(
+        &self,
+        parameters: ParForEachParameters,
+        run: impl Fn(&'a EntityTable, std::ops::Range<usize>) + Sync,
+    ) {
+        let ParForEachParameters { batch_size } = parameters;
         unsafe {
-            let world = self.world.as_ref();
+            let world: &'a World = self.world.as_ref();
             let pool = &world.job_system;
             pool.scope(|s| {
-                let f = &f;
+                let run = &run;
                 world
                     .archetypes
                     .iter()
@@ -548,78 +590,120 @@ where
                         let batch_size = batch_size
                             .map(|b| b.get())
                             .unwrap_or(arch.len() / pool.parallelism() + 1);
+                        // Disjoint archetypes and batch ranges keep mutable items from aliasing.
                         // TODO: the job allocator could probably help greatly with these jobs
                         for range in batches(arch.len(), batch_size) {
-                            s.spawn(move |_s| {
-                                for t in T::iter_range(arch, range) {
-                                    f(t);
-                                }
-                            })
+                            s.spawn(move |_s| run(arch, range));
                         }
                     });
             });
         }
     }
 
+    #[cfg(not(feature = "parallel"))]
+    pub fn par_for_each<'b>(&'b self, f: impl Fn(<T as QueryFragment>::Item<'a>) + 'b) {
+        self.par_for_each_impl(f, ParForEachParameters::default());
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    fn par_for_each_impl<Cb: Fn(<T as QueryFragment>::Item<'a>)>(
+        &self,
+        f: Cb,
+        _parameters: ParForEachParameters,
+    ) {
+        self.iter().for_each(f);
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    pub fn par_for_each_mut<'b>(&'b mut self, f: impl Fn(<T as QueryFragment>::ItemMut<'a>) + 'b) {
+        self.par_for_each_mut_impl(f, ParForEachParameters::default());
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    fn par_for_each_mut_impl<Cb: Fn(<T as QueryFragment>::ItemMut<'a>)>(
+        &mut self,
+        f: Cb,
+        _parameters: ParForEachParameters,
+    ) {
+        self.iter_mut().for_each(f);
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+struct ParForEachParameters {
+    batch_size: Option<NonZeroUsize>,
+}
+
+pub struct ParallelQuery<'q, 'a, T, F> {
+    query: &'q mut Query<'a, T, F>,
+    parameters: ParForEachParameters,
+}
+
+impl<'q, 'a, T: QueryFragment, F: Filter> ParallelQuery<'q, 'a, T, F> {
+    pub fn with_batch_size(mut self, batch_size: Option<NonZeroUsize>) -> Self {
+        self.parameters.batch_size = batch_size;
+        self
+    }
+
     #[cfg(feature = "parallel")]
-    pub fn par_for_each_mut<'b, Cb: Fn(<T as QueryFragment>::ItemMut<'a>) + Sync + 'b>(
-        &'b mut self,
-        d: impl Into<ParForEachDescriptor<Cb>>,
-    ) where
+    pub fn for_each(self, callback: impl Fn(T::Item<'a>) + Sync)
+    where
         T: Send + Sync,
     {
-        let ParForEachDescriptor { f, batch_size } = d.into();
-        unsafe {
-            let world = self.world.as_ref();
-            let pool = &world.job_system;
-            pool.scope(|s| {
-                let f = &f;
-                world
-                    .archetypes
-                    .iter()
-                    // TODO: should filters run inside the jobs instead?
-                    // currently I anticipate that filters are inexpensive, so it seems cheaper to
-                    // filter ahead of job creation
-                    .filter(|(_, arch)| !arch.is_empty() && F::filter(arch))
-                    .for_each(|(_, arch)| {
-                        let batch_size = batch_size
-                            .map(|b| b.get())
-                            .unwrap_or(arch.len() / pool.parallelism() + 1);
-
-                        // TODO: the job allocator could probably help greatly with these jobs
-                        for range in batches(arch.len(), batch_size) {
-                            s.spawn(move |_s| {
-                                for t in T::iter_range_mut(arch, range) {
-                                    f(t);
-                                }
-                            })
-                        }
-                    });
-            });
-        }
+        self.query.par_for_each_impl(callback, self.parameters);
     }
 
-    #[cfg(not(feature = "parallel"))]
     #[cfg(feature = "parallel")]
-    pub fn par_for_each<'b, Cb: Fn(<T as QueryFragment>::Item<'a>) + 'b>(
-        &'b self,
-        d: impl Into<ParForEachDescriptor<Cb>>,
-    ) {
-        self.iter().for_each(d.into().f);
+    pub fn for_each_mut(self, callback: impl Fn(T::ItemMut<'a>) + Sync)
+    where
+        T: Send + Sync,
+    {
+        self.query.par_for_each_mut_impl(callback, self.parameters);
     }
 
     #[cfg(not(feature = "parallel"))]
-    pub fn par_for_each_mut<'b, Cb: Fn(<T as QueryFragment>::ItemMut<'a>) + 'b>(
-        &'b mut self,
-        d: impl Into<ParForEachDescriptor<Cb>>,
-    ) {
-        self.iter_mut().for_each(d.into().f);
+    pub fn for_each(self, callback: impl Fn(T::Item<'a>)) {
+        self.query.par_for_each_impl(callback, self.parameters);
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    pub fn for_each_mut(self, callback: impl Fn(T::ItemMut<'a>)) {
+        self.query.par_for_each_mut_impl(callback, self.parameters);
     }
 }
 
 pub struct ParForEachDescriptor<T> {
     pub f: T,
     pub batch_size: Option<NonZeroUsize>,
+}
+
+impl<T> ParForEachDescriptor<T> {
+    pub fn new_mut<'a, 'b, C>(f: T) -> Self
+    where
+        C: QueryFragment,
+        T: Fn(<C as QueryFragment>::ItemMut<'a>) + 'b,
+    {
+        Self {
+            f,
+            batch_size: None,
+        }
+    }
+
+    pub fn new_const<'a, 'b, C>(f: T) -> Self
+    where
+        C: QueryFragment,
+        T: Fn(<C as QueryFragment>::Item<'a>) + 'b,
+    {
+        Self {
+            f,
+            batch_size: None,
+        }
+    }
+
+    pub fn with_batch_size(mut self, batch_size: Option<NonZeroUsize>) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
 }
 
 impl<T> From<T> for ParForEachDescriptor<T> {
@@ -632,7 +716,7 @@ impl<T> From<T> for ParForEachDescriptor<T> {
 }
 
 #[allow(unused)]
-fn batches(len: usize, batch_size: usize) -> impl Iterator<Item = impl RangeBounds<usize> + Clone> {
+fn batches(len: usize, batch_size: usize) -> impl Iterator<Item = std::ops::Range<usize>> {
     (0..len / batch_size)
         .map(move |i| {
             let s = i * batch_size;

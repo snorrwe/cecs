@@ -228,6 +228,26 @@ fn test_parallel() {
 }
 
 #[test]
+fn parallel_query_builder() {
+    let mut world = World::new(10);
+    for i in 0..10i32 {
+        let id = world.insert_entity();
+        world.set_component(id, i).unwrap();
+    }
+
+    let mut query = Query::<&mut i32>::new(&world);
+    query
+        .parallel()
+        .with_batch_size(std::num::NonZeroUsize::new(3))
+        .for_each_mut(|value| *value += 1);
+    query
+        .parallel()
+        .for_each(|value| assert!((1..=10).contains(value)));
+
+    assert_eq!(query.iter().copied().sum::<i32>(), 55);
+}
+
+#[test]
 #[cfg(feature = "clone")]
 fn world_clone_test() {
     let mut world = World::new(500);
