@@ -208,7 +208,7 @@ fn test_parallel() {
 
     fn par_sys(mut q: Query<(&mut Foo, &String)>) {
         let i = 1;
-        q.par_for_each_mut(|(foo, _)| {
+        q.par_for_each_mut(|(foo, _): (&mut Foo, _)| {
             foo.value += i;
         });
     }
@@ -780,7 +780,7 @@ fn test_par_foreach() {
     }
 
     fn update_sys(mut q: Query<&mut u32>) {
-        q.par_for_each_mut(|i| {
+        q.par_for_each_mut(|i: &mut u32| {
             *i += 1;
         });
     }

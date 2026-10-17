@@ -18,6 +18,7 @@ use std::{
     any::TypeId,
     collections::{BTreeSet, HashSet},
     marker::PhantomData,
+    num::NonZeroUsize,
     ops::RangeBounds,
     slice,
 };
@@ -524,10 +525,13 @@ where
     }
 
     #[cfg(feature = "parallel")]
-    pub fn par_for_each<'b>(&'b self, f: impl Fn(<T as QueryFragment>::Item<'a>) + Sync + 'b)
-    where
+    pub fn par_for_each<'b, Cb: Fn(<T as QueryFragment>::Item<'a>) + Sync + 'b>(
+        &'b self,
+        d: impl Into<ParForEachDescriptor<Cb>>,
+    ) where
         T: Send + Sync,
     {
+        let ParForEachDescriptor { f, batch_size } = d.into();
         unsafe {
             let world = self.world.as_ref();
             let pool = &world.job_system;
@@ -541,7 +545,9 @@ where
                     // filter ahead of job creation
                     .filter(|(_, arch)| !arch.is_empty() && F::filter(arch))
                     .for_each(|(_, arch)| {
-                        let batch_size = arch.len() / pool.parallelism() + 1;
+                        let batch_size = batch_size
+                            .map(|b| b.get())
+                            .unwrap_or(arch.len() / pool.parallelism() + 1);
                         // TODO: the job allocator could probably help greatly with these jobs
                         for range in batches(arch.len(), batch_size) {
                             s.spawn(move |_s| {
@@ -556,12 +562,13 @@ where
     }
 
     #[cfg(feature = "parallel")]
-    pub fn par_for_each_mut<'b>(
+    pub fn par_for_each_mut<'b, Cb: Fn(<T as QueryFragment>::ItemMut<'a>) + Sync + 'b>(
         &'b mut self,
-        f: impl Fn(<T as QueryFragment>::ItemMut<'a>) + Sync + 'b,
+        d: impl Into<ParForEachDescriptor<Cb>>,
     ) where
         T: Send + Sync,
     {
+        let ParForEachDescriptor { f, batch_size } = d.into();
         unsafe {
             let world = self.world.as_ref();
             let pool = &world.job_system;
@@ -575,8 +582,9 @@ where
                     // filter ahead of job creation
                     .filter(|(_, arch)| !arch.is_empty() && F::filter(arch))
                     .for_each(|(_, arch)| {
-                        // TODO: should take size of queried types into account?
-                        let batch_size = arch.len() / pool.parallelism() + 1;
+                        let batch_size = batch_size
+                            .map(|b| b.get())
+                            .unwrap_or(arch.len() / pool.parallelism() + 1);
 
                         // TODO: the job allocator could probably help greatly with these jobs
                         for range in batches(arch.len(), batch_size) {
@@ -592,13 +600,34 @@ where
     }
 
     #[cfg(not(feature = "parallel"))]
-    pub fn par_for_each<'b>(&'b self, f: impl Fn(<T as QueryFragment>::Item<'a>) + 'b) {
-        self.iter().for_each(f);
+    #[cfg(feature = "parallel")]
+    pub fn par_for_each<'b, Cb: Fn(<T as QueryFragment>::Item<'a>) + 'b>(
+        &'b self,
+        d: impl Into<ParForEachDescriptor<Cb>>,
+    ) {
+        self.iter().for_each(d.into().f);
     }
 
     #[cfg(not(feature = "parallel"))]
-    pub fn par_for_each_mut<'b>(&'b mut self, f: impl Fn(<T as QueryFragment>::ItemMut<'a>) + 'b) {
-        self.iter_mut().for_each(f);
+    pub fn par_for_each_mut<'b, Cb: Fn(<T as QueryFragment>::ItemMut<'a>) + 'b>(
+        &'b mut self,
+        d: impl Into<ParForEachDescriptor<Cb>>,
+    ) {
+        self.iter_mut().for_each(d.into().f);
+    }
+}
+
+pub struct ParForEachDescriptor<T> {
+    pub f: T,
+    pub batch_size: Option<NonZeroUsize>,
+}
+
+impl<T> From<T> for ParForEachDescriptor<T> {
+    fn from(value: T) -> Self {
+        Self {
+            f: value,
+            batch_size: None,
+        }
     }
 }
 
