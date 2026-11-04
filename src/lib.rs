@@ -1,8 +1,6 @@
 #![feature(slice_range)]
 
-use std::{
-    any::TypeId, cell::UnsafeCell, collections::BTreeMap, mem::transmute, pin::Pin, ptr::NonNull,
-};
+use std::{any::TypeId, cell::UnsafeCell, mem::transmute, pin::Pin, ptr::NonNull};
 
 use cfg_if::cfg_if;
 use commands::CommandPayload;
@@ -10,6 +8,7 @@ use entity_id::EntityId;
 use entity_index::EntityIndex;
 use prelude::Bundle;
 use resources::ResourceStorage;
+use rustc_hash::FxHashMap;
 use systems::SystemStage;
 use table::EntityTable;
 
@@ -50,10 +49,10 @@ pub struct World {
     tick: u64,
     this_lock: WorldLock,
     entity_index: UnsafeCell<EntityIndex>,
-    archetypes: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
+    archetypes: FxHashMap<TypeHash, Pin<Box<EntityTable>>>,
     // empty archetypes reserved for buffers
     // enables us to reuse temporary archetypes without affecting query performance
-    archetypes_staging: BTreeMap<TypeHash, Pin<Box<EntityTable>>>,
+    archetypes_staging: FxHashMap<TypeHash, Pin<Box<EntityTable>>>,
     resources: ResourceStorage,
     commands: Vec<UnsafeBuffer<CommandPayload>>,
     commands_buffer: Vec<CommandPayload>,
@@ -188,7 +187,7 @@ impl World {
             tick: 0,
             this_lock: WorldLock::new(),
             entity_index: UnsafeCell::new(entity_ids),
-            archetypes: BTreeMap::new(),
+            archetypes: Default::default(),
             archetypes_staging: Default::default(),
             resources: ResourceStorage::new(),
             commands: Vec::default(),
@@ -922,12 +921,12 @@ impl World {
         Ok(())
     }
 
-    pub fn archetypes(&self) -> &BTreeMap<TypeHash, Pin<Box<EntityTable>>> {
+    pub fn archetypes(&self) -> &FxHashMap<TypeHash, Pin<Box<EntityTable>>> {
         &self.archetypes
     }
 
     /// empty archetes in the staging area
-    pub fn archetypes_staging(&self) -> &BTreeMap<TypeHash, Pin<Box<EntityTable>>> {
+    pub fn archetypes_staging(&self) -> &FxHashMap<TypeHash, Pin<Box<EntityTable>>> {
         &self.archetypes_staging
     }
 
