@@ -38,6 +38,7 @@ use world_access::WorldLock;
 
 use crate::{
     commands::{CommandError, prepare_commands},
+    component_allocator::ComponentAllocator,
     systems::ShouldRunFlags,
 };
 
@@ -70,6 +71,7 @@ pub struct World {
     /// [tick] clears the old values
     deleted: Vec<EntityId>,
     newly_deleted: Vec<EntityId>,
+    component_alloc: ComponentAllocator,
 }
 
 unsafe impl Send for World {}
@@ -119,6 +121,9 @@ impl Clone for World {
             job_system,
             deleted: Default::default(),
             newly_deleted: Default::default(),
+            // FIXME: might want to create a new allocator for the new world and use that in its tables
+            // otherwise these two worlds will overlap their allocations
+            component_alloc: self.component_alloc.clone(),
         }
     }
 }
@@ -181,6 +186,7 @@ impl<T: 'static + ParallelComponent> Component for T {}
 impl World {
     pub fn new(initial_capacity: u32) -> Self {
         let entity_ids = EntityIndex::new(initial_capacity);
+        let component_alloc = ComponentAllocator::default();
 
         #[cfg(feature = "parallel")]
         let job_system: job_system::JobPool = job_system::JOB_POOL.clone();
@@ -200,6 +206,7 @@ impl World {
             job_system: job_system.clone(),
             deleted: Default::default(),
             newly_deleted: Default::default(),
+            component_alloc,
         };
         let void_store = Box::pin(EntityTable::empty());
 
