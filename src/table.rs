@@ -3,7 +3,7 @@ use crate::{
     hash_ty, hash_type_id,
 };
 use rustc_hash::FxHashMap;
-use std::{alloc::Layout, any::TypeId, cell::UnsafeCell};
+use std::{any::TypeId, cell::UnsafeCell, ptr::NonNull};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArchetypeHash(pub TypeHash);
@@ -72,7 +72,10 @@ impl EntityTable {
     pub fn empty(allocator: ComponentAllocator) -> Self {
         let ty = hash_ty::<()>();
         let mut components = FxHashMap::default();
-        components.insert(TypeId::of::<()>(), UnsafeCell::new(Column::new::<()>(0)));
+        components.insert(
+            TypeId::of::<()>(),
+            UnsafeCell::new(Column::new::<()>(0, allocator.clone())),
+        );
         Self {
             ty,
             rows: 0,
@@ -211,8 +214,10 @@ impl EntityTable {
         if !self.contains_column::<T>() {
             let new_ty = self.extended_hash::<T>();
             self.ty = new_ty;
-            self.components
-                .insert(TypeId::of::<T>(), UnsafeCell::new(Column::new::<T>(2)));
+            self.components.insert(
+                TypeId::of::<T>(),
+                UnsafeCell::new(Column::new::<T>(2, self.allocator.clone())),
+            );
         }
         self
     }
@@ -226,7 +231,7 @@ impl EntityTable {
                 result.ty = result.extended_hash_ty(hash_type_id(*col));
                 result
                     .components
-                    .insert(*col, UnsafeCell::new((table.clone_empty)()));
+                    .insert(*col, UnsafeCell::new((table.clone_empty)(table)));
             }
         }
         result
@@ -258,7 +263,15 @@ impl EntityTable {
             components: FxHashMap::from_iter(
                 self.components
                     .iter()
-                    .map(|(id, col)| (*id, (unsafe { &*col.get() }.clone_empty)()))
+                    .map(|(id, col)| {
+                        (
+                            *id,
+                            (unsafe {
+                                let col = &*col.get();
+                                (col.clone_empty)(col)
+                            }),
+                        )
+                    })
                     .map(|(id, col)| (id, UnsafeCell::new(col))),
             ),
         }
@@ -293,17 +306,17 @@ impl EntityTable {
 
 /// Type erased storage for an Archetype column
 pub struct Column {
+    allocator: ComponentAllocator,
     // Vec //
     data: *mut u8,
     end: u32,
     capacity: u32,
-    layout: Layout,
     // Type Erased Methods //
     pub(crate) finalize: fn(&mut Column),
     pub(crate) swap_remove: fn(RowIndex, &mut Column),
     #[cfg(feature = "clone")]
     pub(crate) clone: fn(&Column) -> Column,
-    pub(crate) clone_empty: fn() -> Column,
+    pub(crate) clone_empty: fn(&Column) -> Column,
     /// src, dst
     ///
     /// if component is not in `src` then this is a noop
@@ -317,12 +330,6 @@ pub struct Column {
     /// Swap rows in an entity
     pub(crate) swap_rows: fn(&mut Column, RowIndex, RowIndex),
     pub ty_name: &'static str,
-}
-
-impl Default for Column {
-    fn default() -> Self {
-        Self::new::<()>(0)
-    }
 }
 
 impl Drop for Column {
@@ -347,14 +354,14 @@ impl std::fmt::Debug for Column {
 }
 
 impl Column {
-    pub fn new<T: crate::Component>(capacity: usize) -> Self {
-        let layout = Self::layout::<T>(capacity);
+    pub fn new<T: crate::Component>(capacity: usize, allocator: ComponentAllocator) -> Self {
+        let (data, capacity) = allocator.alloc::<T>(capacity);
         Self {
+            allocator,
             ty_name: std::any::type_name::<T>(),
             capacity: capacity as u32,
             end: 0,
-            data: unsafe { std::alloc::alloc(layout) },
-            layout,
+            data: data.as_ptr().cast(),
             finalize: |erased_table: &mut Column| {
                 // drop the inner table
                 unsafe {
@@ -362,7 +369,10 @@ impl Column {
                     for i in 0..erased_table.end {
                         std::ptr::drop_in_place(data.add(i as usize));
                     }
-                    std::alloc::dealloc(erased_table.data, erased_table.layout);
+                    erased_table.allocator.dealloc(
+                        NonNull::new_unchecked(erased_table.data.cast::<T>()),
+                        erased_table.capacity as usize,
+                    );
                 }
             },
             swap_remove: |entity_id, erased_table: &mut Column| unsafe {
@@ -370,7 +380,7 @@ impl Column {
             },
             #[cfg(feature = "clone")]
             clone: |table: &Column| {
-                let mut res = Column::new::<T>(table.capacity as usize);
+                let mut res = Column::new::<T>(table.capacity as usize, table.allocator.clone());
                 res.end = table.end;
                 for i in 0..table.end {
                     unsafe {
@@ -380,7 +390,7 @@ impl Column {
                 }
                 res
             },
-            clone_empty: || Column::new::<T>(1),
+            clone_empty: |table: &Column| Column::new::<T>(1, table.allocator.clone()),
             move_row: |src, dst, index| unsafe {
                 let src = src.swap_remove::<T>(index as usize);
                 dst.push::<T>(src);
@@ -407,34 +417,26 @@ impl Column {
         unsafe { std::slice::from_raw_parts_mut(self.data.cast::<T>(), self.end as usize) }
     }
 
-    fn layout<T>(capacity: usize) -> Layout {
-        let layout = Layout::array::<T>(capacity).unwrap();
-        // ensure non-zero layout
-        if layout.size() != 0 {
-            layout
-        } else {
-            Layout::from_size_align(1, 1).unwrap()
-        }
-    }
-
     /// # SAFETY
     /// Must be called with the same type as `new`
-    pub unsafe fn push<T>(&mut self, val: T) {
+    pub unsafe fn push<T: 'static>(&mut self, val: T) {
         unsafe {
             debug_assert!(self.end <= self.capacity);
             if self.end == self.capacity {
                 // full, have to reallocate
                 let new_cap = (self.capacity * 3 / 2).max(2);
-                let new_layout = Self::layout::<T>(new_cap as usize);
-                let new_data = std::alloc::alloc(new_layout);
+                let (new_data, new_cap) = self.allocator.alloc::<T>(new_cap as usize);
+                let new_data = new_data.as_ptr();
                 for i in 0..self.end {
                     let t: T = std::ptr::read(self.data.cast::<T>().add(i as usize));
                     std::ptr::write(new_data.cast::<T>().add(i as usize), t);
                 }
-                std::alloc::dealloc(self.data, self.layout);
-                self.capacity = new_cap;
-                self.data = new_data;
-                self.layout = new_layout;
+                self.allocator.dealloc::<T>(
+                    NonNull::new_unchecked(self.data.cast::<T>()),
+                    self.capacity as usize,
+                );
+                self.capacity = new_cap as u32;
+                self.data = new_data.cast();
             }
             std::ptr::write(self.data.cast::<T>().add(self.end as usize), val);
             self.end += 1;
