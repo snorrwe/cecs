@@ -278,4 +278,29 @@ mod tests {
             assert_eq!(start, start_2);
         }
     }
+
+    #[test]
+    fn test_random_allocs() {
+        type T = i64;
+
+        let allocator = ComponentAllocator::default();
+
+        let mut allocs = Vec::new();
+        let mut rng = fastrand::Rng::new();
+
+        for _ in 0..100 {
+            allocs.clear();
+            for _ in 0..1000 {
+                let alloc = allocator.alloc::<T>(fastrand::usize(1..1000));
+                allocs.push(alloc);
+            }
+
+            rng.shuffle(&mut allocs);
+            for (start, size) in allocs.drain(..) {
+                unsafe {
+                    allocator.dealloc(start, size);
+                }
+            }
+        }
+    }
 }
