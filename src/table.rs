@@ -69,6 +69,26 @@ impl std::fmt::Debug for EntityTable {
 }
 
 impl EntityTable {
+    #[cfg(feature = "clone")]
+    pub fn clone_with_alloc(&self, allocator: ComponentAllocator) -> Self {
+        Self {
+            ty: self.ty,
+            rows: self.rows,
+            entities: self.entities.clone(),
+            components: self
+                .components
+                .iter()
+                .map(|(ty, col)| unsafe {
+                    (
+                        *ty,
+                        UnsafeCell::new((*col.get()).clone_with_alloc(allocator.clone())),
+                    )
+                })
+                .collect(),
+            allocator,
+        }
+    }
+
     pub fn empty(allocator: ComponentAllocator) -> Self {
         let ty = hash_ty::<()>();
         let mut components = FxHashMap::default();
@@ -229,9 +249,10 @@ impl EntityTable {
             if !self.contains_column_ty(*col) {
                 let table = unsafe { &*table.get() };
                 result.ty = result.extended_hash_ty(hash_type_id(*col));
-                result
-                    .components
-                    .insert(*col, UnsafeCell::new((table.clone_empty)(table)));
+                result.components.insert(
+                    *col,
+                    UnsafeCell::new((table.clone_empty)(table.allocator.clone())),
+                );
             }
         }
         result
@@ -255,8 +276,11 @@ impl EntityTable {
     }
 
     pub fn clone_empty(&self) -> Self {
+        self.clone_empty_into(self.allocator.clone())
+    }
+
+    pub fn clone_empty_into(&self, allocator: ComponentAllocator) -> Self {
         Self {
-            allocator: self.allocator.clone(),
             ty: self.ty,
             rows: 0,
             entities: Vec::with_capacity(self.entities.len()),
@@ -268,12 +292,13 @@ impl EntityTable {
                             *id,
                             (unsafe {
                                 let col = &*col.get();
-                                (col.clone_empty)(col)
+                                (col.clone_empty)(allocator.clone())
                             }),
                         )
                     })
                     .map(|(id, col)| (id, UnsafeCell::new(col))),
             ),
+            allocator,
         }
     }
 
@@ -316,7 +341,9 @@ pub struct Column {
     pub(crate) swap_remove: fn(RowIndex, &mut Column),
     #[cfg(feature = "clone")]
     pub(crate) clone: fn(&Column) -> Column,
-    pub(crate) clone_empty: fn(&Column) -> Column,
+    #[cfg(feature = "clone")]
+    pub(crate) clone_with_alloc: fn(&Column, ComponentAllocator) -> Column,
+    pub(crate) clone_empty: fn(ComponentAllocator) -> Column,
     /// src, dst
     ///
     /// if component is not in `src` then this is a noop
@@ -353,6 +380,17 @@ impl std::fmt::Debug for Column {
     }
 }
 
+#[cfg(feature = "clone")]
+fn perform_clone<T: Clone>(dst: &mut Column, src: &Column) {
+    dst.end = src.end;
+    for i in 0..src.end {
+        unsafe {
+            let val = (&*src.data.cast::<T>().add(i as usize)).clone();
+            std::ptr::write(dst.data.cast::<T>().add(i as usize), val);
+        }
+    }
+}
+
 impl Column {
     pub fn new<T: crate::Component>(capacity: usize, allocator: ComponentAllocator) -> Self {
         let (data, capacity) = allocator.alloc::<T>(capacity);
@@ -381,16 +419,16 @@ impl Column {
             #[cfg(feature = "clone")]
             clone: |table: &Column| {
                 let mut res = Column::new::<T>(table.capacity as usize, table.allocator.clone());
-                res.end = table.end;
-                for i in 0..table.end {
-                    unsafe {
-                        let val = (&*table.data.cast::<T>().add(i as usize)).clone();
-                        std::ptr::write(res.data.cast::<T>().add(i as usize), val);
-                    }
-                }
+                perform_clone::<T>(&mut res, table);
                 res
             },
-            clone_empty: |table: &Column| Column::new::<T>(1, table.allocator.clone()),
+            #[cfg(feature = "clone")]
+            clone_with_alloc: |table: &Column, allocator| {
+                let mut res = Column::new::<T>(table.capacity as usize, allocator);
+                perform_clone::<T>(&mut res, table);
+                res
+            },
+            clone_empty: |allocator: ComponentAllocator| Column::new::<T>(1, allocator),
             move_row: |src, dst, index| unsafe {
                 let src = src.swap_remove::<T>(index as usize);
                 dst.push::<T>(src);
@@ -464,5 +502,10 @@ impl Column {
 
     pub fn remove(&mut self, id: RowIndex) {
         (self.swap_remove)(id, self);
+    }
+
+    #[cfg(feature = "clone")]
+    pub fn clone_with_alloc(&self, allocator: ComponentAllocator) -> Self {
+        (self.clone_with_alloc)(self, allocator)
     }
 }
