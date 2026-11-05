@@ -146,15 +146,15 @@ impl ColumnAllocator {
     ///
     /// return: On success Some start of allocation and actual size in items
     pub unsafe fn try_alloc<T>(&mut self, num_items: usize) -> Option<(*mut T, usize)> {
-        let res = unsafe { self.try_alloc_impl(num_items) };
+        let res = unsafe { self.try_alloc_impl(num_items, size_of::<T>()) };
         if let Some((_, size)) = res.as_ref() {
             self.allocated_bytes += *size * size_of::<T>();
         }
-        res
+        res.map(|(ptr, s)| (ptr.cast(), s))
     }
 
-    unsafe fn try_alloc_impl<T>(&mut self, num_items: usize) -> Option<(*mut T, usize)> {
-        let byte_size = size_of::<T>() * num_items;
+    unsafe fn try_alloc_impl(&mut self, num_items: usize, size: usize) -> Option<(*mut u8, usize)> {
+        let byte_size = size * num_items;
 
         // TODO: maybe try to find a tighter bound instead of the first?
         for i in (0..self.free_stack.len()).rev() {
@@ -168,7 +168,7 @@ impl ColumnAllocator {
                         let alloc = &mut self.free_stack[i];
                         // the free alloc is substantially higher, split
                         unsafe {
-                            let end: *mut T = alloc.start.cast::<T>().add(num_items);
+                            let end: *mut u8 = alloc.start.add(num_items * size);
                             let start = std::mem::replace(&mut alloc.start, end.cast());
                             return Some((start.cast(), num_items));
                         }
@@ -176,7 +176,7 @@ impl ColumnAllocator {
                         // the free alloc is a bit larger, give the caller all of the block
 
                         let alloc = self.free_stack.remove(i);
-                        return Some((alloc.start.cast(), alloc.size_bytes() / size_of::<T>()));
+                        return Some((alloc.start.cast(), alloc.size_bytes() / size));
                     }
                 }
                 std::cmp::Ordering::Less => {
