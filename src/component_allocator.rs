@@ -63,6 +63,15 @@ impl ComponentAllocator {
         }
         panic!("Pointer {start:?} was not allocated by this allocator",);
     }
+
+    pub fn allocated_bytes(&self) -> usize {
+        self.columns
+            .lock()
+            .values()
+            .flatten()
+            .map(|c| c.allocated_bytes())
+            .sum()
+    }
 }
 
 impl Default for ComponentAllocator {
@@ -72,13 +81,14 @@ impl Default for ComponentAllocator {
 }
 
 struct ColumnAllocator {
-    pub layout: std::alloc::Layout,
-    pub start: *mut u8,
-    pub head: *mut u8,
-    pub end: *mut u8,
+    layout: std::alloc::Layout,
+    start: *mut u8,
+    head: *mut u8,
+    end: *mut u8,
     /// Sorted by the start ptrs
     /// Blocks must never overlap
-    pub free_stack: Vec<FreeBlock>,
+    free_stack: Vec<FreeBlock>,
+    allocated_bytes: usize,
 }
 
 struct FreeBlock {
@@ -118,6 +128,7 @@ impl ColumnAllocator {
         assert!(!ptr.is_null(), "Memory allocation failed");
 
         Self {
+            allocated_bytes: 0,
             start: ptr,
             layout,
             head: ptr,
@@ -135,6 +146,14 @@ impl ColumnAllocator {
     ///
     /// return: On success Some start of allocation and actual size in items
     pub unsafe fn try_alloc<T>(&mut self, num_items: usize) -> Option<(*mut T, usize)> {
+        let res = unsafe { self.try_alloc_impl(num_items) };
+        if let Some((_, size)) = res.as_ref() {
+            self.allocated_bytes += *size * size_of::<T>();
+        }
+        res
+    }
+
+    unsafe fn try_alloc_impl<T>(&mut self, num_items: usize) -> Option<(*mut T, usize)> {
         let byte_size = size_of::<T>() * num_items;
 
         // TODO: maybe try to find a tighter bound instead of the first?
@@ -180,11 +199,14 @@ impl ColumnAllocator {
     /// # SAFETY
     /// Must be called with the same type as new
     /// Must be called with a valid alloc obtained from try_alloc of this instance
+    /// Must be called with the same size try_alloc returned
     pub unsafe fn dealloc<T>(&mut self, start: *mut T, num_items: usize) {
         let block = FreeBlock {
             start: start.cast(),
             end: unsafe { start.add(num_items).cast() },
         };
+
+        self.allocated_bytes -= num_items * size_of::<T>();
 
         let i = self
             .free_stack
@@ -220,6 +242,10 @@ impl ColumnAllocator {
             }
             ptr.offset_from(self.end) < 0
         }
+    }
+
+    pub fn allocated_bytes(&self) -> usize {
+        self.allocated_bytes
     }
 }
 
@@ -294,6 +320,7 @@ mod tests {
                 let alloc = allocator.alloc::<T>(fastrand::usize(1..1000));
                 allocs.push(alloc);
             }
+            assert_ne!(allocator.allocated_bytes(), 0);
 
             rng.shuffle(&mut allocs);
             for (start, size) in allocs.drain(..) {
@@ -301,6 +328,7 @@ mod tests {
                     allocator.dealloc(start, size);
                 }
             }
+            assert_eq!(allocator.allocated_bytes(), 0);
         }
     }
 }
