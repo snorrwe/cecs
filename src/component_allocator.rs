@@ -8,6 +8,9 @@ pub struct ComponentAllocator {
     columns: Arc<Mutex<FxHashMap<TypeId, Vec<ColumnAllocator>>>>,
 }
 
+unsafe impl Send for ComponentAllocator {}
+unsafe impl Sync for ComponentAllocator {}
+
 const BLOCK_SIZE: usize = 1048576; // 1MiB
 
 impl ComponentAllocator {

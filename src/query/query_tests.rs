@@ -1,10 +1,17 @@
+use lazy_static::lazy_static;
+
+use crate::ComponentAllocator;
 use crate::query::filters::Or;
 
 use super::{filters::With, *};
 
+lazy_static! {
+    static ref ALLOC: ComponentAllocator = ComponentAllocator::default();
+}
+
 #[test]
 fn iter_query_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 
@@ -27,7 +34,7 @@ fn iter_query_test() {
 
 #[test]
 fn joined_iter_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 
@@ -46,14 +53,14 @@ fn joined_iter_test() {
     for ((s, i), (exps, expi)) in
         <(&String, &u32)>::iter(&archetype).zip([("pog", 42), ("pog32", 69)].iter())
     {
-        assert_eq!(&*s, exps);
-        assert_eq!(&*i, expi);
+        assert_eq!(s, exps);
+        assert_eq!(i, expi);
     }
 }
 
 #[test]
 fn non_existent_component_iter_is_empty_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 
@@ -76,7 +83,7 @@ fn non_existent_component_iter_is_empty_test() {
 
 #[test]
 fn mutable_iterator_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 
@@ -103,7 +110,7 @@ fn mutable_iterator_test() {
 
 #[test]
 fn can_mix_mut_ref_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 
@@ -137,7 +144,7 @@ fn can_mix_mut_ref_test() {
 
 #[test]
 fn basic_filter_test() {
-    let mut archetype = EntityTable::empty()
+    let mut archetype = EntityTable::empty(ALLOC.clone())
         .extend_with_column::<String>()
         .extend_with_column::<u32>();
 

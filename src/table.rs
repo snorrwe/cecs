@@ -1,4 +1,7 @@
-use crate::{Component, RowIndex, TypeHash, entity_id::EntityId, hash_ty, hash_type_id};
+use crate::{
+    Component, RowIndex, TypeHash, component_allocator::ComponentAllocator, entity_id::EntityId,
+    hash_ty, hash_type_id,
+};
 use rustc_hash::FxHashMap;
 use std::{alloc::Layout, any::TypeId, cell::UnsafeCell};
 
@@ -18,6 +21,7 @@ pub struct EntityTable {
     pub(crate) rows: u32,
     pub(crate) entities: Vec<EntityId>,
     pub(crate) components: FxHashMap<TypeId, UnsafeCell<Column>>,
+    pub(crate) allocator: ComponentAllocator,
 }
 
 unsafe impl Send for EntityTable {}
@@ -35,6 +39,7 @@ impl Clone for EntityTable {
                 .iter()
                 .map(|(ty, col)| unsafe { (*ty, UnsafeCell::new((*col.get()).clone())) })
                 .collect(),
+            allocator: self.allocator.clone(),
         }
     }
 }
@@ -64,7 +69,7 @@ impl std::fmt::Debug for EntityTable {
 }
 
 impl EntityTable {
-    pub fn empty() -> Self {
+    pub fn empty(allocator: ComponentAllocator) -> Self {
         let ty = hash_ty::<()>();
         let mut components = FxHashMap::default();
         components.insert(TypeId::of::<()>(), UnsafeCell::new(Column::new::<()>(0)));
@@ -73,6 +78,7 @@ impl EntityTable {
             rows: 0,
             entities: Vec::default(),
             components,
+            allocator,
         }
     }
 
@@ -245,6 +251,7 @@ impl EntityTable {
 
     pub fn clone_empty(&self) -> Self {
         Self {
+            allocator: self.allocator.clone(),
             ty: self.ty,
             rows: 0,
             entities: Vec::with_capacity(self.entities.len()),

@@ -188,6 +188,8 @@ impl World {
         let entity_ids = EntityIndex::new(initial_capacity);
         let component_alloc = ComponentAllocator::default();
 
+        let void_store = Box::pin(EntityTable::empty(component_alloc.clone()));
+
         #[cfg(feature = "parallel")]
         let job_system: job_system::JobPool = job_system::JOB_POOL.clone();
         let mut result = Self {
@@ -208,7 +210,6 @@ impl World {
             newly_deleted: Default::default(),
             component_alloc,
         };
-        let void_store = Box::pin(EntityTable::empty());
 
         #[cfg(feature = "tracing")]
         tracing::debug!(
