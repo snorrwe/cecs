@@ -47,6 +47,9 @@ impl ComponentAllocator {
 
     /// # SAFETY must be called with the same type as alloc
     pub unsafe fn dealloc<T: 'static>(&self, start: NonNull<T>, size: usize) {
+        if size_of::<T>() == 0 {
+            return;
+        }
         let mut cols = self.columns.lock();
         let allocators = cols
             .get_mut(&TypeId::of::<T>())
@@ -58,7 +61,7 @@ impl ComponentAllocator {
                 return;
             }
         }
-        panic!("Pointer {start:?} was not allocated by this allocator");
+        panic!("Pointer {start:?} was not allocated by this allocator",);
     }
 }
 
@@ -84,10 +87,6 @@ struct FreeBlock {
 }
 
 impl FreeBlock {
-    pub fn new(start: *mut u8, end: *mut u8) -> Self {
-        Self { start, end }
-    }
-
     pub fn size_bytes(&self) -> usize {
         unsafe { self.end.offset_from(self.start).try_into().unwrap() }
     }
@@ -104,7 +103,7 @@ impl Drop for ColumnAllocator {
 impl ColumnAllocator {
     /// num_items = number of maximum elements of T to store in this allocation
     pub fn new<T>(mut num_items: usize) -> Self {
-        if num_items * size_of::<T>() < BLOCK_SIZE {
+        if num_items * size_of::<T>() < BLOCK_SIZE && size_of::<T>() > 0 {
             num_items = BLOCK_SIZE / size_of::<T>() + 1;
         }
 
@@ -186,25 +185,29 @@ impl ColumnAllocator {
             .binary_search_by(|b| b.start.cmp(&block.start))
             .expect_err("Double free; found the start position as a free block");
 
-        if i > 0 && self.free_stack[i - 1].end == block.start {
-            // merge with back candidate
-            self.free_stack[i - 1].end = block.end;
-            // check if we can merge with next
-            if self.free_stack[i - 1].end == self.free_stack[i].start {
-                self.free_stack[i - 1].end = self.free_stack[i].end;
-                self.free_stack.remove(i);
-            }
-        } else if i < self.free_stack.len() && block.end == self.free_stack[i].start {
-            // merge with front candidate
-            self.free_stack[i].start = block.start;
-        } else {
-            // block should be pushed to the end
+        if i < self.free_stack.len() {
             if i > 0 && self.free_stack[i - 1].end == block.start {
                 // merge with back candidate
                 self.free_stack[i - 1].end = block.end;
+                // check if we can merge with next
+                if self.free_stack[i - 1].end == self.free_stack[i].start {
+                    self.free_stack[i - 1].end = self.free_stack[i].end;
+                    self.free_stack.remove(i);
+                }
+                return;
+            } else if block.end == self.free_stack[i].start {
+                // merge with front candidate
+                self.free_stack[i].start = block.start;
+                return;
             }
-            self.free_stack.insert(i, block);
         }
+
+        // block should be pushed to the end
+        if i > 0 && self.free_stack[i - 1].end == block.start {
+            // merge with back candidate
+            self.free_stack[i - 1].end = block.end;
+        }
+        self.free_stack.insert(i, block);
     }
 
     pub fn contains(&self, ptr: *mut u8) -> bool {
