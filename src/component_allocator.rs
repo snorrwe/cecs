@@ -107,7 +107,11 @@ impl ColumnAllocator {
             num_items = BLOCK_SIZE / size_of::<T>() + 1;
         }
 
-        let layout = std::alloc::Layout::array::<T>(num_items).unwrap();
+        let layout = std::alloc::Layout::from_size_align(
+            (num_items * size_of::<T>()).max(1),
+            align_of::<T>().max(8),
+        )
+        .unwrap();
 
         let ptr = unsafe { std::alloc::alloc(layout) };
 
