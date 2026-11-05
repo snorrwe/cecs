@@ -1,9 +1,10 @@
-use std::{any::TypeId, mem::size_of, ptr::NonNull};
+use std::{any::TypeId, mem::size_of, ptr::NonNull, sync::Arc};
 
+use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
 pub struct ComponentAllocator {
-    columns: FxHashMap<TypeId, Vec<ColumnAllocator>>,
+    columns: Arc<Mutex<FxHashMap<TypeId, Vec<ColumnAllocator>>>>,
 }
 
 const BLOCK_SIZE: usize = 1048576; // 1MiB
@@ -17,10 +18,11 @@ impl ComponentAllocator {
 
     /// Return the pointer to the allocation and the actual size of the allocation, which is at
     /// least num_items
-    pub fn alloc<T: 'static>(&mut self, num_items: usize) -> (NonNull<T>, usize) {
+    pub fn alloc<T: 'static>(&self, num_items: usize) -> (NonNull<T>, usize) {
         let ty = TypeId::of::<T>();
 
-        let allocators = self.columns.entry(ty).or_insert_with(|| {
+        let mut cols = self.columns.lock();
+        let allocators = cols.entry(ty).or_insert_with(|| {
             let first = ColumnAllocator::new::<T>(num_items);
             vec![first]
         });
@@ -37,6 +39,22 @@ impl ComponentAllocator {
         let (ptr, size) = unsafe { next.try_alloc(num_items).unwrap() };
         allocators.push(next);
         unsafe { (NonNull::new_unchecked(ptr), size) }
+    }
+
+    /// # SAFETY must be called with the same type as alloc
+    pub unsafe fn dealloc<T: 'static>(&self, start: NonNull<T>, size: usize) {
+        let mut cols = self.columns.lock();
+        let allocators = cols
+            .get_mut(&TypeId::of::<T>())
+            .expect("Allocator collection not found for type");
+
+        for alloc in allocators.iter_mut() {
+            if alloc.contains(start.as_ptr().cast()) {
+                unsafe { alloc.dealloc::<T>(start.as_ptr(), size) };
+                return;
+            }
+        }
+        panic!("Pointer {start:?} was not allocated by this allocator");
     }
 }
 
@@ -182,6 +200,16 @@ impl ColumnAllocator {
                 self.free_stack[i - 1].end = block.end;
             }
             self.free_stack.insert(i, block);
+        }
+    }
+
+    pub fn contains(&self, ptr: *mut u8) -> bool {
+        unsafe {
+            let o = ptr.offset_from(self.start);
+            if o < 0 {
+                return false;
+            }
+            ptr.offset_from(self.end) < 0
         }
     }
 }
