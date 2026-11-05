@@ -8,6 +8,11 @@ repository = "https://github.com/caolo-game/cecs"
 readme = "README.md"
 rust-version = "1.91"
 
+[lib]
+# fix passing criterion args
+bench = false
+
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
