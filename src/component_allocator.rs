@@ -115,6 +115,8 @@ impl ColumnAllocator {
 
         let ptr = unsafe { std::alloc::alloc(layout) };
 
+        assert!(!ptr.is_null(), "Memory allocation failed");
+
         Self {
             start: ptr,
             layout,
