@@ -200,20 +200,16 @@ impl ColumnAllocator {
                     self.free_stack[i - 1].end = self.free_stack[i].end;
                     self.free_stack.remove(i);
                 }
-                return;
             } else if block.end == self.free_stack[i].start {
                 // merge with front candidate
                 self.free_stack[i].start = block.start;
-                return;
             }
-        }
-
-        // block should be pushed to the end
-        if i > 0 && self.free_stack[i - 1].end == block.start {
+        } else if i > 0 && self.free_stack[i - 1].end == block.start {
             // merge with back candidate
             self.free_stack[i - 1].end = block.end;
+        } else {
+            self.free_stack.insert(i, block);
         }
-        self.free_stack.insert(i, block);
     }
 
     pub fn contains(&self, ptr: *mut u8) -> bool {
