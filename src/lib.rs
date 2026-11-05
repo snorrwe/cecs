@@ -71,7 +71,6 @@ pub struct World {
     /// [tick] clears the old values
     deleted: Vec<EntityId>,
     newly_deleted: Vec<EntityId>,
-    component_alloc: ComponentAllocator,
 }
 
 unsafe impl Send for World {}
@@ -80,11 +79,24 @@ unsafe impl Sync for World {}
 #[cfg(feature = "clone")]
 impl Clone for World {
     fn clone(&self) -> Self {
-        // we don't actually mutate archetypes here, we just need mutable references to cast to
-        // pointers
-        let mut archetypes = self.archetypes.clone();
         let commands = Vec::default();
         let commands_buffer = Vec::default();
+
+        // Allocators try to flatten the components' alloc as much as possible so have separate
+        // allocators per World
+        let allocator = ComponentAllocator::default();
+
+        // we don't actually mutate archetypes here, we just need mutable references to cast to
+        // pointers
+        let mut archetypes: FxHashMap<_, _> = self
+            .archetypes
+            .iter()
+            .map(|(k, v)| {
+                let v: &EntityTable = v.as_ref().get_ref();
+                let c = v.clone_with_alloc(allocator.clone());
+                (*k, Box::pin(c))
+            })
+            .collect();
 
         let mut entity_ids = self.entity_ids().clone();
         for id in prelude::Query::<EntityId>::new(self).iter() {
@@ -121,9 +133,6 @@ impl Clone for World {
             job_system,
             deleted: Default::default(),
             newly_deleted: Default::default(),
-            // FIXME: might want to create a new allocator for the new world and use that in its tables
-            // otherwise these two worlds will overlap their allocations
-            component_alloc: self.component_alloc.clone(),
         }
     }
 }
@@ -188,7 +197,7 @@ impl World {
         let entity_ids = EntityIndex::new(initial_capacity);
         let component_alloc = ComponentAllocator::default();
 
-        let void_store = Box::pin(EntityTable::empty(component_alloc.clone()));
+        let void_store = Box::pin(EntityTable::empty(component_alloc));
 
         #[cfg(feature = "parallel")]
         let job_system: job_system::JobPool = job_system::JOB_POOL.clone();
@@ -208,7 +217,6 @@ impl World {
             job_system: job_system.clone(),
             deleted: Default::default(),
             newly_deleted: Default::default(),
-            component_alloc,
         };
 
         #[cfg(feature = "tracing")]
