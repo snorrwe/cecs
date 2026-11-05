@@ -26,6 +26,7 @@ pub mod world_access;
 #[cfg(feature = "serde")]
 pub mod serde;
 
+mod component_allocator;
 mod table;
 
 #[cfg(feature = "parallel")]
