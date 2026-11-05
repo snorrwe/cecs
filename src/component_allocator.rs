@@ -3,6 +3,7 @@ use std::{any::TypeId, mem::size_of, ptr::NonNull, sync::Arc};
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
+#[derive(Clone)]
 pub struct ComponentAllocator {
     columns: Arc<Mutex<FxHashMap<TypeId, Vec<ColumnAllocator>>>>,
 }
