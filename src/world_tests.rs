@@ -98,7 +98,7 @@ fn can_query_entity_id_test() {
     let id2 = world.insert_entity();
     world.set_component(id2, "poggers2".to_string()).unwrap();
 
-    let mut exp = vec![(id1, "poggers1"), (id2, "poggers2")];
+    let mut exp = [(id1, "poggers1"), (id2, "poggers2")];
     exp.sort_by_key(|(id, _)| *id);
 
     let q = Query::<(EntityId, &String)>::new(&world);
@@ -763,7 +763,7 @@ fn unsafe_partition_test() {
         pool.scope(|s| {
             for (i, children) in parents.iter() {
                 s.spawn(|_| {
-                    for child in (*children).0.iter().copied() {
+                    for child in children.0.iter().copied() {
                         unsafe {
                             add(i, child, &q);
                         }
@@ -774,11 +774,11 @@ fn unsafe_partition_test() {
     }
 
     fn asserts(q0: Query<&u32, WithOut<Children>>, q1: Query<&u32, With<Children>>) {
-        for i in q0.iter().copied() {
-            assert_eq!(i, 70);
+        for i in q0.iter() {
+            assert_eq!(*i, 70);
         }
-        for i in q1.iter().copied() {
-            assert_eq!(i, 69);
+        for i in q1.iter() {
+            assert_eq!(*i, 69);
         }
     }
 
@@ -806,8 +806,8 @@ fn test_par_foreach() {
     }
 
     fn asserts(q0: Query<&u32>) {
-        for i in q0.iter().copied() {
-            assert_eq!(i, 1);
+        for i in q0.iter() {
+            assert_eq!(*i, 1);
         }
         assert_eq!(q0.count(), 128);
     }
@@ -957,7 +957,7 @@ fn vacuum_must_not_collect_void_ty_test() {
     w.vacuum();
 
     let mut found = false;
-    for (x, _a) in w.archetypes().iter() {
+    for x in w.archetypes().keys() {
         if x == &VOID_TY {
             found = true;
         }
@@ -1061,6 +1061,7 @@ fn tuple_queries() {
 
     world.insert_resource(42i32);
 
+    #[expect(clippy::type_complexity)]
     let i = world.run_view_system(|(q, r): (Query<(&i32, (&i64, &u32), &u64)>, Res<i32>)| {
         let mut i = 0;
         for (a, (b, c), d) in q.iter() {
