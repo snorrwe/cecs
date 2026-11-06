@@ -957,7 +957,7 @@ fn vacuum_must_not_collect_void_ty_test() {
     w.vacuum();
 
     let mut found = false;
-    for x in w.archetypes().keys() {
+    for x in w.archetypes.keys() {
         if x == &VOID_TY {
             found = true;
         }
@@ -1020,7 +1020,7 @@ fn world_should_not_contain_empty_archetypes() {
         .unwrap();
 
     let mut count = 0;
-    for (_key, arch) in world.archetypes().iter().filter(|(k, _)| *k != &VOID_TY) {
+    for (_key, arch) in world.archetypes().iter().filter(|(k, _)| k != &VOID_TY) {
         assert!(!arch.is_empty());
         count += 1;
     }

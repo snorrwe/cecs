@@ -29,6 +29,7 @@ pub mod serde;
 mod component_allocator;
 mod table;
 
+mod archetype_collection;
 #[cfg(feature = "parallel")]
 pub mod job_system;
 #[cfg(feature = "parallel")]
@@ -37,6 +38,7 @@ mod scheduler;
 use world_access::WorldLock;
 
 use crate::{
+    archetype_collection::ArchetypeCollection,
     commands::{CommandError, prepare_commands},
     component_allocator::ComponentAllocator,
     systems::ShouldRunFlags,
@@ -51,7 +53,7 @@ pub struct World {
     tick: u64,
     this_lock: WorldLock,
     entity_index: UnsafeCell<EntityIndex>,
-    archetypes: FxHashMap<TypeHash, Pin<Box<EntityTable>>>,
+    archetypes: ArchetypeCollection,
     // empty archetypes reserved for buffers
     // enables us to reuse temporary archetypes without affecting query performance
     archetypes_staging: FxHashMap<TypeHash, Pin<Box<EntityTable>>>,
@@ -88,15 +90,7 @@ impl Clone for World {
 
         // we don't actually mutate archetypes here, we just need mutable references to cast to
         // pointers
-        let mut archetypes: FxHashMap<_, _> = self
-            .archetypes
-            .iter()
-            .map(|(k, v)| {
-                let v: &EntityTable = v.as_ref().get_ref();
-                let c = v.clone_with_alloc(allocator.clone());
-                (*k, Box::pin(c))
-            })
-            .collect();
+        let mut archetypes = self.archetypes.clone_with_alloc(allocator);
 
         let mut entity_ids = self.entity_ids().clone();
         for id in prelude::Query::<EntityId>::new(self).iter() {
@@ -104,7 +98,7 @@ impl Clone for World {
             let ty = unsafe { ptr.as_ref() }.ty();
             let new_arch = archetypes.get_mut(&ty).unwrap();
             unsafe {
-                entity_ids.update(id, new_arch.as_mut().get_mut() as *mut _, row_index);
+                entity_ids.update(id, new_arch as *mut _, row_index);
             }
         }
 
@@ -289,12 +283,13 @@ impl World {
             .filter_map(|(k, v)| (!v.is_empty()).then_some(*k))
             .collect::<Vec<_>>();
 
-        for id in promotion_queue {
-            let t = self.archetypes_staging.remove(&id).unwrap();
-            #[cfg(feature = "tracing")]
-            tracing::trace!(?t, "Promoting archetype");
-            self.archetypes.insert(id, t);
-        }
+        self.archetypes
+            .extend(promotion_queue.into_iter().map(|id| {
+                let t = self.archetypes_staging.remove(&id).unwrap();
+                #[cfg(feature = "tracing")]
+                tracing::trace!(?t, "Promoting archetype");
+                (id, t)
+            }));
 
         let demotion_queue = self
             .archetypes
@@ -329,12 +324,12 @@ impl World {
     pub(crate) unsafe fn init_id(&mut self, id: EntityId) {
         let void_store = self.archetypes.get_mut(&VOID_TY).unwrap();
 
-        let index = void_store.as_mut().insert_entity(id);
-        void_store.as_mut().set_component(index, ());
+        let index = void_store.insert_entity(id);
+        void_store.set_component(index, ());
         unsafe {
             self.entity_index
                 .get_mut()
-                .update(id, void_store.as_mut().get_mut() as *mut _, index)
+                .update(id, void_store as *mut _, index)
         };
     }
 
@@ -373,8 +368,12 @@ impl World {
     fn get_archetype_by_key_mut(&mut self, key: &TypeHash) -> Option<NonNull<EntityTable>> {
         self.archetypes
             .get_mut(key)
-            .or_else(|| self.archetypes_staging.get_mut(key))
-            .map(|t| t.as_mut().get_mut().into())
+            .or_else(|| {
+                self.archetypes_staging
+                    .get_mut(key)
+                    .map(|t| Pin::as_mut(t).get_mut())
+            })
+            .map(|t| t.into())
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self, bundle), fields(ty = std::any::type_name::<T>())))]
@@ -526,8 +525,7 @@ impl World {
             archetype = ?res,
             "Inserted new archetype"
         );
-        let _old = self.archetypes.insert(new_arch.ty(), new_arch);
-        assert!(_old.is_none());
+        self.archetypes.insert(new_arch.ty(), new_arch);
 
         if let Some(updated_entity) = moved_entity {
             #[cfg(feature = "tracing")]
@@ -871,7 +869,7 @@ impl World {
 
         // dst_arch is disjoint from both lhs and rhs
         //
-        let dst_arch = self.archetypes.entry(dst_hash).or_insert_with(|| {
+        let dst_arch = self.archetypes.get_or_insert_with(dst_hash,|| {
             let a = Box::pin(rhs_archetype.merged(lhs_archetype));
             #[cfg(feature = "tracing")]
             tracing::debug!(hash = a.ty(), archetype = ?std::ptr::from_ref(a.as_ref().get_ref()), "Inserted new merged archetype");
@@ -915,7 +913,7 @@ impl World {
         // entity bookkeeping
         unsafe {
             let entity_ids = self.entity_index.get_mut();
-            entity_ids.update(rhs, Pin::as_mut(dst_arch).get_mut() as *mut _, dst_index);
+            entity_ids.update(rhs, dst_arch as *mut _, dst_index);
             entity_ids.free(lhs);
         }
         Ok(())
@@ -938,8 +936,8 @@ impl World {
         Ok(())
     }
 
-    pub fn archetypes(&self) -> &FxHashMap<TypeHash, Pin<Box<EntityTable>>> {
-        &self.archetypes
+    pub fn archetypes(&self) -> &[(TypeHash, Pin<Box<EntityTable>>)] {
+        self.archetypes.as_slice()
     }
 
     /// empty archetes in the staging area
