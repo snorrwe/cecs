@@ -8,8 +8,6 @@ use std::{any::TypeId, cell::UnsafeCell, ptr::NonNull};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ArchetypeHash(pub TypeHash);
 
-// TODO: component allocator
-
 /// A table for entities with the same shape.
 /// Each column of the table stores a specific component, and each row is an entity.
 ///
