@@ -12,7 +12,6 @@ use super::WorldQuery;
 
 pub struct Res<'a, T> {
     inner: &'a T,
-    _m: PhantomData<T>,
 }
 
 impl<'a, T> Debug for Res<'a, T>
@@ -49,10 +48,7 @@ impl<'a, T: 'static> Res<'a, T> {
                 );
             }
         };
-        Self {
-            inner,
-            _m: PhantomData,
-        }
+        Self { inner }
     }
 
     pub fn cloned(&self) -> T
@@ -173,10 +169,7 @@ unsafe impl<'a, T: 'static> WorldQuery<'a> for ResMut<'a, T> {
 unsafe impl<'a, T: 'static> WorldQuery<'a> for Option<Res<'a, T>> {
     fn new(world: &'a crate::World, _props: SystemProperties) -> Self {
         let inner = world.resources.fetch();
-        inner.map(|inner| Res {
-            inner,
-            _m: PhantomData,
-        })
+        inner.map(|inner| Res { inner })
     }
 
     fn resources_const(set: &mut HashSet<TypeId>) {
