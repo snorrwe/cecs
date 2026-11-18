@@ -11,7 +11,7 @@ use crate::query::SystemProperties;
 use super::WorldQuery;
 
 pub struct Res<'a, T> {
-    inner: &'a T,
+    pub inner: &'a T,
 }
 
 impl<'a, T> Debug for Res<'a, T>
@@ -81,9 +81,10 @@ impl<'a, T: 'static> AsRef<T> for Res<'a, T> {
 }
 
 pub struct ResMut<'a, T> {
-    inner: &'a mut T,
+    pub inner: &'a mut T,
     _m: PhantomData<fn() -> &'a mut T>,
 }
+
 impl<'a, T> Debug for ResMut<'a, T>
 where
     T: Debug,

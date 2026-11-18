@@ -358,8 +358,8 @@ fn can_skip_stage_test() {
 
     world.insert_resource(0i32);
 
-    fn system(mut q: ResMut<i32>) {
-        *q += 1i32;
+    fn system(ResMut { inner, .. }: ResMut<i32>) {
+        *inner += 1i32;
     }
 
     fn should_not_run() -> bool {
