@@ -1,11 +1,11 @@
-use std::{any::TypeId, cell::UnsafeCell};
+use std::{any::TypeId, ptr::NonNull};
 
 use rustc_hash::FxHashMap;
 
 use crate::Component;
 
 pub struct ResourceStorage {
-    pub(crate) resources: FxHashMap<TypeId, UnsafeCell<ErasedResource>>,
+    pub(crate) resources: FxHashMap<TypeId, ErasedResource>,
 }
 
 #[cfg(feature = "clone")]
@@ -15,7 +15,7 @@ impl Clone for ResourceStorage {
             resources: self
                 .resources
                 .iter()
-                .map(|(id, table)| (*id, UnsafeCell::new(unsafe { &*table.get() }.clone())))
+                .map(|(id, table)| (*id, table.clone()))
                 .collect(),
         }
     }
@@ -37,10 +37,10 @@ impl ResourceStorage {
     pub fn insert<T: Component>(&mut self, value: T) {
         match self.resources.entry(TypeId::of::<T>()) {
             std::collections::hash_map::Entry::Occupied(mut x) => {
-                x.insert(UnsafeCell::new(ErasedResource::new(value)));
+                x.insert(ErasedResource::new(value));
             }
             std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert(UnsafeCell::new(ErasedResource::new(value)));
+                e.insert(ErasedResource::new(value));
             }
         }
     }
@@ -48,7 +48,7 @@ impl ResourceStorage {
     pub fn fetch<T: 'static>(&self) -> Option<&T> {
         self.resources
             .get(&TypeId::of::<T>())
-            .map(|table| unsafe { (*table.get()).as_inner::<T>() })
+            .map(|table| unsafe { table.as_inner::<T>() })
     }
 
     /// # Safety
@@ -57,21 +57,21 @@ impl ResourceStorage {
     pub unsafe fn fetch_mut<T: 'static>(&self) -> Option<&mut T> {
         self.resources
             .get(&TypeId::of::<T>())
-            .map(|table| unsafe { (*table.get()).as_inner_mut::<T>() })
+            .map(|table| unsafe { table.as_inner_ptr::<T>().as_mut() })
     }
 
     pub fn fetch_or_default<T: Default + Component>(&mut self) -> &mut T {
         let res = self
             .resources
             .entry(TypeId::of::<T>())
-            .or_insert_with(|| UnsafeCell::new(ErasedResource::new(T::default())));
-        unsafe { res.get_mut().as_inner_mut::<T>() }
+            .or_insert_with(|| ErasedResource::new(T::default()));
+        unsafe { res.as_inner_mut::<T>() }
     }
 
     pub fn remove<T: 'static>(&mut self) -> Option<Box<T>> {
         self.resources
             .remove(&TypeId::of::<T>())
-            .map(|table| unsafe { table.into_inner().into_inner() })
+            .map(|table| unsafe { table.into_inner() })
     }
 
     pub fn contains<T: 'static>(&self) -> bool {
@@ -136,6 +136,12 @@ impl ErasedResource {
     /// Must be called with the same type as `new`
     pub unsafe fn as_inner_mut<T>(&mut self) -> &mut T {
         unsafe { &mut *self.inner.cast() }
+    }
+
+    /// # SAFETY
+    /// Must be called with the same type as `new`
+    pub unsafe fn as_inner_ptr<T>(&self) -> NonNull<T> {
+        unsafe { NonNull::new_unchecked(self.inner.cast()) }
     }
 
     /// # SAFETY
