@@ -13,6 +13,7 @@ struct Foo {
 struct Never;
 
 #[derive(serde_derive::Serialize, serde_derive::Deserialize, Clone, PartialEq, Eq)]
+#[expect(clippy::enum_variant_names)]
 enum Bar {
     Foo,
     Bar,
@@ -334,6 +335,28 @@ fn version_mismatch_is_error_test() {
         &err.to_string()[0..93],
         "Version mismatch. WorldPersister expected version `2.0.0` but the payload has version `1.0.0`",
     );
+}
+
+#[test]
+#[cfg_attr(feature = "tracing", tracing_test::traced_test)]
+fn minor_version_bump_is_accepted_test() {
+    let world0 = World::new(8);
+    let p = WorldPersister::new()
+        .with_component::<i32>()
+        .with_version(Version::parse("1.0.0").unwrap());
+
+    let mut result = Vec::<u8>::new();
+    let mut s = serde_json::Serializer::pretty(&mut result);
+
+    p.save(&mut s, &world0).unwrap();
+
+    let p = WorldPersister::new()
+        .with_component::<i32>()
+        .with_version(Version::parse("1.2.0").unwrap());
+
+    p.load(&mut serde_json::Deserializer::from_slice(&result))
+        .map(drop)
+        .expect("Deserialization failed");
 }
 
 #[test]
