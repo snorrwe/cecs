@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod test;
 
+use crate::query::SystemProperties;
 use std::{any::TypeId, collections::HashSet, ptr::NonNull, sync::Arc};
 
 use cfg_if::cfg_if;
@@ -11,7 +12,7 @@ use crate::job_system::{AsJob, ExecutionState};
 
 use crate::{World, query::WorldQuery};
 
-pub type InnerSystem<'a, R> = dyn Fn(&'a World, usize) -> R + 'a;
+pub type InnerSystem<'a, R> = dyn Fn(&'a World, SystemProperties) -> R + 'a;
 pub type ShouldRunSystem<'a> = InnerSystem<'a, bool>;
 
 type SystemStorage<T> = Vec<T>;
@@ -349,7 +350,7 @@ pub trait IntoSystem<'a, Param, R> {
 }
 
 pub trait IntoOnceSystem<'a, Param, R> {
-    fn into_once_system(self) -> impl FnOnce(&World, usize) -> R;
+    fn into_once_system(self) -> impl FnOnce(&World, SystemProperties) -> R;
     fn descriptor() -> SystemDescriptor<'a, R>;
 }
 
@@ -393,7 +394,13 @@ impl<'a, R> AsJob for SystemJob<'a, R> {
             )
             .entered();
 
-            (sys.execute)(world, sys.system_idx);
+            (sys.execute)(
+                world,
+                SystemProperties {
+                    idx: sys.system_idx,
+                    id: sys.id(),
+                },
+            );
             ExecutionState::Done
         }
     }
@@ -407,7 +414,7 @@ where
 {
     fn descriptor(self) -> SystemDescriptor<'a, R> {
         let factory: Box<dyn Fn() -> Box<InnerSystem<'a, R>>> =
-            Box::new(move || Box::new(move |_world: &'a World, _system_idx| (self)()));
+            Box::new(move || Box::new(move |_world: &'a World, _props| (self)()));
         SystemDescriptor {
             id: TypeId::of::<F>(),
             name: std::any::type_name::<F>().into(),
@@ -427,8 +434,8 @@ impl<'a, R: 'static, F> IntoOnceSystem<'a, (), R> for F
 where
     F: FnOnce() -> R,
 {
-    fn into_once_system(self) -> impl FnOnce(&World, usize) -> R {
-        move |_world: &World, _system_idx| (self)()
+    fn into_once_system(self) -> impl FnOnce(&World, SystemProperties) -> R {
+        move |_world: &World, _props| (self)()
     }
     fn descriptor() -> SystemDescriptor<'a, R> {
         let dummy: fn() -> R = || unreachable!();
@@ -461,9 +468,9 @@ macro_rules! impl_intosys_fn {
                 }
                 let factory: Box<dyn Fn()-> Box<InnerSystem<'a, R>>>
                     = Box::new(move || {
-                        Box::new(move |_world: &'a World, _system_idx| {
+                        Box::new(move |_world: &'a World, _props| {
                             (self)(
-                                $(<$t>::new(_world, _system_idx),)*
+                                $(<$t>::new(_world, _props),)*
                             )
                         })
                     });
@@ -511,10 +518,10 @@ macro_rules! impl_intosys_fn {
         where
             F: FnOnce($($t),*) -> R,
         {
-            fn into_once_system(self) -> impl FnOnce(&World, usize) -> R {
-                move |_world: &World, _system_idx| {
+            fn into_once_system(self) -> impl FnOnce(&World, SystemProperties) -> R {
+                move |_world: &World, _props| {
                     (self)(
-                        $( unsafe { <$t>::new(std::mem::transmute::<&World, &World>(_world), _system_idx)},)*
+                        $( unsafe { <$t>::new(std::mem::transmute::<&World, &World>(_world), _props)},)*
                     )
                 }
             }

@@ -1,4 +1,8 @@
-use crate::{World, prelude::EntityId, query::WorldQuery};
+use crate::{
+    World,
+    prelude::EntityId,
+    query::{SystemProperties, WorldQuery},
+};
 use std::marker::PhantomData;
 
 /// Iterate over EntityIds deleted in the last tick
@@ -40,7 +44,7 @@ impl<'a> DeletedEntities<'a> {
 }
 
 unsafe impl<'a> WorldQuery<'a> for DeletedEntities<'a> {
-    fn new(db: &'a World, _system_idx: usize) -> Self {
+    fn new(db: &'a World, _props: SystemProperties) -> Self {
         Self {
             world: std::ptr::NonNull::from(db),
             _l: PhantomData,

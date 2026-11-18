@@ -23,11 +23,17 @@ use std::{
     slice,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub struct SystemProperties {
+    pub idx: usize,
+    pub id: TypeId,
+}
+
 /// # SAFETY
 ///
 /// Implementors must ensure that the appropriate methods are implemented!
 pub unsafe trait WorldQuery<'a> {
-    fn new(db: &'a World, system_idx: usize) -> Self;
+    fn new(db: &'a World, props: SystemProperties) -> Self;
 
     /// List of component types this query needs exclusive access to
     fn components_mut(_set: &mut HashSet<TypeId>) {}
@@ -91,10 +97,10 @@ macro_rules! query_collection {
          }
 
          unsafe impl<$life> cecs::query::WorldQuery<$life> for $name <$life> {
-            fn new(db: & $life World, system_idx: usize) -> Self {
+            fn new(db: & $life World, props: SystemProperties) -> Self {
                Self {
                    $(
-                       $field: <$ty as cecs::query::WorldQuery>::new(db, system_idx)
+                       $field: <$ty as cecs::query::WorldQuery>::new(db, props)
                    ),*
                }
             }
@@ -127,7 +133,7 @@ macro_rules! query_collection {
 }
 
 unsafe impl<'a> WorldQuery<'a> for () {
-    fn new(_db: &'a World, _system_idx: usize) -> Self {}
+    fn new(_db: &'a World, _props: SystemProperties) -> Self {}
     fn read_only() -> bool {
         true
     }
@@ -226,7 +232,7 @@ where
     T: QueryFragment,
     F: Filter,
 {
-    fn new(db: &'a World, _system_idx: usize) -> Self {
+    fn new(db: &'a World, _props: SystemProperties) -> Self {
         Self::new(db)
     }
 
@@ -1594,10 +1600,10 @@ macro_rules! impl_tuple {
                 $t: WorldQuery<'a>,
             )+
         {
-            fn new(db: &'a World, system_idx: usize) -> Self {
+            fn new(db: &'a World, props: SystemProperties) -> Self {
                 (
                     $(
-                    <$t as WorldQuery>::new(db, system_idx),
+                    <$t as WorldQuery>::new(db, props),
                     )+
                 )
             }

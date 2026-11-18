@@ -4,6 +4,7 @@ mod test;
 use std::{any::TypeId, collections::HashSet, marker::PhantomData};
 
 use crate::{
+    SystemProperties,
     prelude::{Filter, Query},
     query::{QueryFragment, WorldQuery},
 };
@@ -87,7 +88,7 @@ macro_rules! impl_tuple {
             $f: Filter,
             )*
         {
-            fn new(db: &'a crate::World, _system_idx: usize) -> Self {
+            fn new(db: &'a crate::World, _props: SystemProperties) -> Self {
                 Self {
                     world: std::ptr::NonNull::from(db),
                     _m: PhantomData,

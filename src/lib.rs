@@ -41,7 +41,8 @@ use crate::{
     archetype_collection::ArchetypeCollection,
     commands::{CommandError, prepare_commands},
     component_allocator::ComponentAllocator,
-    systems::ShouldRunFlags,
+    query::SystemProperties,
+    systems::{ShouldRunFlags, Topological as _},
 };
 
 #[cfg(test)]
@@ -632,15 +633,20 @@ impl World {
     pub fn run_system<'a, S, P, R>(&mut self, system: S) -> Result<R, CommandError>
     where
         S: systems::IntoOnceSystem<'a, P, R>,
+        'a: 'static,
     {
         self.resize_commands(1);
 
-        // assert invariants
-        #[cfg(debug_assertions)]
-        let _desc = S::descriptor();
+        // asserts invariants
+        let desc = S::descriptor();
+
+        let props = SystemProperties {
+            idx: 0,
+            id: desc.id,
+        };
 
         let func = system.into_once_system();
-        let result = (func)(self, 0);
+        let result = (func)(self, props);
         // apply commands immediately
         self.apply_commands().map(move |_| result)
     }
@@ -656,7 +662,13 @@ impl World {
         let desc = S::descriptor();
         assert!((desc.read_only)());
         let sys = system.into_once_system();
-        (sys)(self, 0)
+        (sys)(
+            self,
+            SystemProperties {
+                idx: 0,
+                id: desc.id,
+            },
+        )
     }
 
     #[cfg_attr(feature = "tracing", tracing::instrument(skip(self), fields(tick=self.tick)))]
@@ -982,9 +994,10 @@ impl World {
 #[cfg_attr(feature = "tracing", tracing::instrument(skip(world, sys), fields(tick=world.tick)))]
 unsafe fn run_system<'a, R>(world: &'a World, sys: &'a systems::ErasedSystem<'_, R>) -> R {
     let index = sys.system_idx;
+    let id = sys.id();
     let execute: &systems::InnerSystem<'_, R> = { unsafe { transmute(sys.execute.as_ref()) } };
 
-    (execute)(world, index)
+    (execute)(world, SystemProperties { idx: index, id })
 }
 
 pub struct RunStageReturn<'a> {

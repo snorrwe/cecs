@@ -1,8 +1,10 @@
 use std::ptr::NonNull;
 
 use crate::{
-    Component, UnsafeBuffer, World, WorldError, entity_id::EntityId, prelude::Bundle,
-    query::WorldQuery,
+    Component, UnsafeBuffer, World, WorldError,
+    entity_id::EntityId,
+    prelude::Bundle,
+    query::{SystemProperties, WorldQuery},
 };
 
 pub struct Commands<'a> {
@@ -39,8 +41,8 @@ pub enum CommandError {
 unsafe impl<'a> Sync for Commands<'a> {}
 
 unsafe impl<'a> WorldQuery<'a> for Commands<'a> {
-    fn new(w: &'a World, system_idx: usize) -> Self {
-        Self::new(w, system_idx)
+    fn new(w: &'a World, props: SystemProperties) -> Self {
+        Self::new(w, props.idx)
     }
 }
 

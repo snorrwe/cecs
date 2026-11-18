@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::query::WorldQuery;
+use crate::query::{SystemProperties, WorldQuery};
 
 /// Gives unique access to the world
 ///
@@ -81,7 +81,7 @@ unsafe impl Send for WorldAccess<'_> {}
 unsafe impl Sync for WorldAccess<'_> {}
 
 unsafe impl<'a> WorldQuery<'a> for WorldAccess<'a> {
-    fn new(db: &'a crate::World, _system_idx: usize) -> Self {
+    fn new(db: &'a crate::World, _props: SystemProperties) -> Self {
         let _guard = db.this_lock.lock();
         WorldAccess {
             world: db.into(),

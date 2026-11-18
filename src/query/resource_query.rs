@@ -6,6 +6,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use crate::query::SystemProperties;
+
 use super::WorldQuery;
 
 pub struct Res<'a, T> {
@@ -23,7 +25,7 @@ where
 }
 
 unsafe impl<'a, T: 'static> WorldQuery<'a> for Res<'a, T> {
-    fn new(db: &'a crate::World, _system_idx: usize) -> Self {
+    fn new(db: &'a crate::World, _props: SystemProperties) -> Self {
         Self::new(db)
     }
 
@@ -155,7 +157,7 @@ impl<'a, T: 'static> AsMut<T> for ResMut<'a, T> {
 }
 
 unsafe impl<'a, T: 'static> WorldQuery<'a> for ResMut<'a, T> {
-    fn new(db: &'a crate::World, _system_idx: usize) -> Self {
+    fn new(db: &'a crate::World, _props: SystemProperties) -> Self {
         Self::new(db)
     }
 
@@ -169,7 +171,7 @@ unsafe impl<'a, T: 'static> WorldQuery<'a> for ResMut<'a, T> {
 }
 
 unsafe impl<'a, T: 'static> WorldQuery<'a> for Option<Res<'a, T>> {
-    fn new(world: &'a crate::World, _system_idx: usize) -> Self {
+    fn new(world: &'a crate::World, _props: SystemProperties) -> Self {
         let inner = world.resources.fetch();
         inner.map(|inner| Res {
             inner,
@@ -187,7 +189,7 @@ unsafe impl<'a, T: 'static> WorldQuery<'a> for Option<Res<'a, T>> {
 }
 
 unsafe impl<'a, T: 'static> WorldQuery<'a> for Option<ResMut<'a, T>> {
-    fn new(world: &'a crate::World, _system_idx: usize) -> Self {
+    fn new(world: &'a crate::World, _props: SystemProperties) -> Self {
         let inner = unsafe { world.resources.fetch_mut() };
         inner.map(|inner| ResMut {
             inner,
